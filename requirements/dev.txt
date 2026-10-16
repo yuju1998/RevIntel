@@ -1,0 +1,8 @@
+-r base.txt
+-r ml.txt
+
+pytest
+pytest-asyncio
+pytest-cov
+ruff
+

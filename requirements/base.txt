@@ -1,0 +1,16 @@
+fastapi[standard]
+sqlalchemy>=2
+psycopg[binary]
+alembic
+pydantic-settings
+redis
+pyjwt[crypto]
+pwdlib[argon2]
+python-multipart
+structlog
+orjson
+httpx
+tenacity
+pgvector
+boto3
+
