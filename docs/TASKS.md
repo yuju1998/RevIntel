@@ -2,8 +2,8 @@
 
 ## Phase 1 — Backend
 - [ ] Infrastructure
-- [ ] Health endpoints
-- [ ] Database connection
+- [x] Health endpoints
+- [x] Database connection
 - [ ] Alembic
 - [ ] Account
 - [ ] Contact
