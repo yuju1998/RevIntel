@@ -16,6 +16,10 @@ select = [
     "UP"
 ]
 
+[tool.ruff.lint.isort]
+# `backend/alembic/` (migrations) would otherwise make Ruff treat the alembic package as first-party.
+known-third-party = ["alembic"]
+
 [tool.pytest.ini_options]
 pythonpath = [
     ".",

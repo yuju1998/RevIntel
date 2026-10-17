@@ -4,7 +4,7 @@
 - [ ] Infrastructure
 - [x] Health endpoints
 - [x] Database connection
-- [ ] Alembic
+- [x] Alembic
 - [ ] Account
 - [ ] Contact
 - [ ] Lead

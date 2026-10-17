@@ -3,7 +3,7 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from app.core.config import Settings, get_settings
+from app.core.config import DatabaseSettings, Settings, get_database_settings, get_settings
 
 pytestmark = pytest.mark.usefixtures("clean_env")
 
@@ -127,3 +127,74 @@ def test_get_settings_is_cached(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("REDIS_URL", VALID_REDIS_URL)
 
     assert get_settings() is get_settings()
+
+
+def test_database_settings_load_without_redis_url(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("DATABASE_URL", VALID_DATABASE_URL)
+    monkeypatch.setenv("DB_CONNECT_TIMEOUT_SECONDS", "7")
+
+    settings = DatabaseSettings()
+
+    assert str(settings.database_url) == VALID_DATABASE_URL
+    assert settings.db_connect_timeout_seconds == 7
+    assert not hasattr(settings, "redis_url")
+
+
+def test_database_settings_ignore_application_settings_in_env_file(tmp_path: Path) -> None:
+    env_file = tmp_path / ".env"
+    env_file.write_text(
+        f"DATABASE_URL={VALID_DATABASE_URL}\nREDIS_URL=not-a-redis-url\nAPP_NAME=Ignored\n"
+    )
+
+    settings = DatabaseSettings(_env_file=env_file)
+
+    assert str(settings.database_url) == VALID_DATABASE_URL
+    assert not hasattr(settings, "app_name")
+
+
+def test_database_settings_require_database_url() -> None:
+    with pytest.raises(ValidationError) as exc_info:
+        DatabaseSettings(_env_file=None)
+
+    assert exc_info.value.errors()[0]["loc"] == ("database_url",)
+
+
+@pytest.mark.parametrize(
+    "database_url",
+    [
+        "postgresql://revintel:s3cret@localhost:5432/revintel",
+        "postgresql+psycopg://revintel:s3cret@localhost:5432",
+    ],
+)
+def test_database_settings_share_database_url_validation(database_url: str) -> None:
+    with pytest.raises(ValidationError) as exc_info:
+        DatabaseSettings(_env_file=None, database_url=database_url)
+
+    assert exc_info.value.errors()[0]["loc"] == ("database_url",)
+    assert "s3cret" not in str(exc_info.value)
+
+
+def test_application_settings_still_require_redis_url(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("DATABASE_URL", VALID_DATABASE_URL)
+
+    with pytest.raises(ValidationError) as exc_info:
+        Settings()
+
+    assert [error["loc"] for error in exc_info.value.errors()] == [("redis_url",)]
+
+
+def test_application_settings_include_database_settings() -> None:
+    settings = Settings(_env_file=None, database_url=VALID_DATABASE_URL, redis_url=VALID_REDIS_URL)
+
+    assert isinstance(settings, DatabaseSettings)
+    assert str(settings.database_url) == VALID_DATABASE_URL
+
+
+def test_get_database_settings_is_cached_and_independent_of_redis(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("DATABASE_URL", VALID_DATABASE_URL)
+
+    assert get_database_settings() is get_database_settings()
+    with pytest.raises(ValidationError):
+        get_settings()

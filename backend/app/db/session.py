@@ -7,10 +7,10 @@ and stores them on `app.state`.
 from sqlalchemy import Engine, create_engine
 from sqlalchemy.orm import Session, sessionmaker
 
-from app.core.config import Settings
+from app.core.config import DatabaseSettings
 
 
-def create_db_engine(settings: Settings) -> Engine:
+def create_db_engine(settings: DatabaseSettings) -> Engine:
     # create_engine is lazy: no connection is opened until the first checkout.
     return create_engine(
         str(settings.database_url),

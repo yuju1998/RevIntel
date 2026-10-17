@@ -1,0 +1,4 @@
+RevIntel Alembic environment (single PostgreSQL database, synchronous psycopg 3).
+
+The database URL comes from DATABASE_URL via app.core.config.Settings, and autogenerate
+compares against app.db.base.Base.metadata. See docs/DATABASE.md for usage.

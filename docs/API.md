@@ -23,6 +23,9 @@ fastapi dev backend/app/main.py
 Settings are loaded from environment variables, falling back to `.env`
 (see `backend/app/core/config.py`). Unknown keys are ignored.
 
+The API needs every required variable below. Alembic only needs `DATABASE_URL` and the
+`DB_*` settings (see `docs/DATABASE.md`).
+
 | Variable | Required | Default | Notes |
 |---|---|---|---|
 | `APP_NAME` | no | `RevIntel` | |
