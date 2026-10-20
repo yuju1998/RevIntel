@@ -18,7 +18,11 @@ def create_db_engine(settings: DatabaseSettings) -> Engine:
         pool_size=settings.db_pool_size,
         max_overflow=settings.db_max_overflow,
         pool_timeout=settings.db_pool_timeout_seconds,
-        connect_args={"connect_timeout": settings.db_connect_timeout_seconds},
+        connect_args={
+            "connect_timeout": settings.db_connect_timeout_seconds,
+            # Sessions report and interpret timestamps in UTC regardless of server config.
+            "options": "-c timezone=UTC",
+        },
     )
 
 

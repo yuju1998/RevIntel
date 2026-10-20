@@ -3,6 +3,7 @@ sqlalchemy>=2
 psycopg[binary]
 alembic
 pydantic-settings
+email-validator
 redis
 pyjwt[crypto]
 pwdlib[argon2]

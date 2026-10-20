@@ -1,3 +1,5 @@
+import io
+import re
 from pathlib import Path
 
 import pytest
@@ -56,3 +58,49 @@ def test_env_uses_database_only_settings(
 def test_env_requires_database_url(alembic_config: Config) -> None:
     with pytest.raises(ValidationError):
         command.upgrade(alembic_config, "head", sql=True)
+
+
+def _offline_sql(monkeypatch: pytest.MonkeyPatch, upgrade: bool) -> str:
+    monkeypatch.setenv("DATABASE_URL", UNREACHABLE_DATABASE_URL)
+    buffer = io.StringIO()
+    config = Config(str(ALEMBIC_INI), output_buffer=buffer)
+    if upgrade:
+        command.upgrade(config, "head", sql=True)
+    else:
+        command.downgrade(config, "head:base", sql=True)
+    return buffer.getvalue()
+
+
+def test_migrations_have_a_single_head(alembic_config: Config) -> None:
+    assert len(ScriptDirectory.from_config(alembic_config).get_heads()) == 1
+
+
+def test_upgrade_sql_creates_only_phase_1_tables(monkeypatch: pytest.MonkeyPatch) -> None:
+    sql = _offline_sql(monkeypatch, upgrade=True)
+
+    created = set(re.findall(r"CREATE TABLE (\w+)", sql)) - {"alembic_version"}
+    assert created == {"users", "accounts", "contacts", "leads", "opportunities"}
+    assert "vector" not in sql.lower()
+
+
+def test_upgrade_sql_names_each_constraint_exactly_once(monkeypatch: pytest.MonkeyPatch) -> None:
+    sql = _offline_sql(monkeypatch, upgrade=True)
+    names = re.findall(r"CONSTRAINT (\w+)", sql)
+
+    assert len(names) == len(set(names))
+    # Enum CHECKs are named only through the naming convention, never bare enum names.
+    assert not {"user_role", "lead_source", "lead_status", "opportunity_stage"} & set(names)
+    for name in (
+        "uq_users_email",
+        "ck_leads_converted_requires_converted_at",
+        "ck_opportunities_opportunity_stage",
+        "fk_contacts_account_id_accounts",
+    ):
+        assert name in names
+
+
+def test_downgrade_sql_drops_every_phase_1_table(monkeypatch: pytest.MonkeyPatch) -> None:
+    sql = _offline_sql(monkeypatch, upgrade=False)
+
+    dropped = re.findall(r"DROP TABLE (\w+)", sql)
+    assert dropped[:5] == ["opportunities", "leads", "contacts", "accounts", "users"]
