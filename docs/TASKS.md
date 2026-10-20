@@ -5,6 +5,8 @@
 - [x] Health endpoints
 - [x] Database connection
 - [x] Alembic
+- [x] Database design (schema spec in docs/DATABASE.md)
+- [ ] User
 - [ ] Account
 - [ ] Contact
 - [ ] Lead
