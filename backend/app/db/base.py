@@ -15,3 +15,7 @@ NAMING_CONVENTION = {
 
 class Base(DeclarativeBase):
     metadata = MetaData(naming_convention=NAMING_CONVENTION)
+
+    # Fetch server-generated values (created_at, updated_at) via RETURNING on INSERT and
+    # UPDATE, so they are available after flush without an extra SELECT.
+    __mapper_args__ = {"eager_defaults": True}
