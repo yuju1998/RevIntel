@@ -11,8 +11,8 @@
 - [x] Contact
 - [x] Lead
 - [x] Opportunity
-- [ ] Activity
-- [ ] Note
+- [x] Activity
+- [x] Note
 - [ ] Authentication
 - [ ] Redis
 - [ ] Tests

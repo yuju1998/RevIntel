@@ -75,12 +75,42 @@ def test_migrations_have_a_single_head(alembic_config: Config) -> None:
     assert len(ScriptDirectory.from_config(alembic_config).get_heads()) == 1
 
 
-def test_upgrade_sql_creates_only_phase_1_tables(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_migration_chain_is_linear(alembic_config: Config) -> None:
+    script = ScriptDirectory.from_config(alembic_config)
+    chain = [rev.revision for rev in reversed(list(script.walk_revisions()))]
+
+    assert chain == ["d9abf148e9ed", "9d4d176a3488"]
+    assert script.get_revision("9d4d176a3488").down_revision == "d9abf148e9ed"
+
+
+def test_upgrade_sql_creates_only_implemented_tables(monkeypatch: pytest.MonkeyPatch) -> None:
     sql = _offline_sql(monkeypatch, upgrade=True)
 
     created = set(re.findall(r"CREATE TABLE (\w+)", sql)) - {"alembic_version"}
-    assert created == {"users", "accounts", "contacts", "leads", "opportunities"}
+    assert created == {
+        "users",
+        "accounts",
+        "contacts",
+        "leads",
+        "opportunities",
+        "activities",
+        "notes",
+    }
     assert "vector" not in sql.lower()
+
+
+def test_second_migration_only_adds_activities_and_notes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("DATABASE_URL", UNREACHABLE_DATABASE_URL)
+    buffer = io.StringIO()
+    command.upgrade(Config(str(ALEMBIC_INI), output_buffer=buffer), "d9abf148e9ed:head", sql=True)
+    sql = buffer.getvalue()
+
+    assert set(re.findall(r"CREATE TABLE (\w+)", sql)) == {"activities", "notes"}
+    assert not re.search(r"(ALTER|DROP) TABLE", sql)
+    for name in ("ck_activities_activity_type", "ck_activities_activity_direction"):
+        assert len(re.findall(rf"CONSTRAINT {name} ", sql)) == 1
 
 
 def test_upgrade_sql_names_each_constraint_exactly_once(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -89,7 +119,14 @@ def test_upgrade_sql_names_each_constraint_exactly_once(monkeypatch: pytest.Monk
 
     assert len(names) == len(set(names))
     # Enum CHECKs are named only through the naming convention, never bare enum names.
-    assert not {"user_role", "lead_source", "lead_status", "opportunity_stage"} & set(names)
+    assert not {
+        "user_role",
+        "lead_source",
+        "lead_status",
+        "opportunity_stage",
+        "activity_type",
+        "activity_direction",
+    } & set(names)
     for name in (
         "uq_users_email",
         "ck_leads_converted_requires_converted_at",
@@ -99,8 +136,18 @@ def test_upgrade_sql_names_each_constraint_exactly_once(monkeypatch: pytest.Monk
         assert name in names
 
 
-def test_downgrade_sql_drops_every_phase_1_table(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_downgrade_sql_drops_tables_in_reverse_dependency_order(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     sql = _offline_sql(monkeypatch, upgrade=False)
 
-    dropped = re.findall(r"DROP TABLE (\w+)", sql)
-    assert dropped[:5] == ["opportunities", "leads", "contacts", "accounts", "users"]
+    dropped = [name for name in re.findall(r"DROP TABLE (\w+)", sql) if name != "alembic_version"]
+    assert dropped == [
+        "notes",
+        "activities",
+        "opportunities",
+        "leads",
+        "contacts",
+        "accounts",
+        "users",
+    ]

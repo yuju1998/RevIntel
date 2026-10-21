@@ -2,7 +2,7 @@
 
 from fastapi import APIRouter
 
-from app.api.routes import accounts, contacts, health, leads, opportunities
+from app.api.routes import accounts, activities, contacts, health, leads, notes, opportunities
 
 API_V1_PREFIX = "/api/v1"
 
@@ -17,4 +17,6 @@ v1_router.include_router(accounts.router)
 v1_router.include_router(contacts.router)
 v1_router.include_router(leads.router)
 v1_router.include_router(opportunities.router)
+v1_router.include_router(activities.router)
+v1_router.include_router(notes.router)
 api_router.include_router(v1_router)

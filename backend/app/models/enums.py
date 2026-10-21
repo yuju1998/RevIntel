@@ -36,3 +36,17 @@ class OpportunityStage(StrEnum):
     NEGOTIATION = "NEGOTIATION"
     CLOSED_WON = "CLOSED_WON"
     CLOSED_LOST = "CLOSED_LOST"
+
+
+class ActivityType(StrEnum):
+    CALL = "CALL"
+    EMAIL = "EMAIL"
+    MEETING = "MEETING"
+    DEMO = "DEMO"
+    FOLLOW_UP = "FOLLOW_UP"
+
+
+class ActivityDirection(StrEnum):
+    INBOUND = "INBOUND"
+    OUTBOUND = "OUTBOUND"
+    INTERNAL = "INTERNAL"

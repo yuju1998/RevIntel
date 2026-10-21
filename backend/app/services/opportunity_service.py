@@ -10,8 +10,8 @@ from app.repositories.account import AccountRepository
 from app.repositories.opportunity import OpportunityRepository
 from app.repositories.user import UserRepository
 from app.schemas.opportunity import OpportunityCreate, OpportunityUpdate
-from app.services.ownership import ensure_active_owner, owner_not_found
 from app.services.transaction import write_transaction
+from app.services.user_validation import ensure_active_user, user_not_found_for
 
 
 def _account_not_found() -> RelatedResourceNotFoundError:
@@ -20,7 +20,7 @@ def _account_not_found() -> RelatedResourceNotFoundError:
 
 CONSTRAINT_ERRORS = {
     "fk_opportunities_account_id_accounts": _account_not_found,
-    "fk_opportunities_owner_id_users": owner_not_found,
+    "fk_opportunities_owner_id_users": user_not_found_for("owner_id"),
 }
 
 
@@ -41,7 +41,7 @@ class OpportunityService:
         with write_transaction(self._session, CONSTRAINT_ERRORS):
             if self._accounts.get(data.account_id) is None:
                 raise _account_not_found()
-            ensure_active_owner(self._users, data.owner_id)
+            ensure_active_user(self._users, data.owner_id, field="owner_id")
             opportunity = self._opportunities.add(Opportunity(**data.model_dump()))
         return opportunity
 
@@ -55,7 +55,7 @@ class OpportunityService:
             if opportunity is None:
                 raise NotFoundError(f"Opportunity {opportunity_id} not found")
             if "owner_id" in changes:
-                ensure_active_owner(self._users, changes["owner_id"])
+                ensure_active_user(self._users, changes["owner_id"], field="owner_id")
             for field, value in changes.items():
                 setattr(opportunity, field, value)
         return opportunity

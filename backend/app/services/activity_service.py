@@ -1,0 +1,69 @@
+"""Activity business logic."""
+
+import uuid
+
+from sqlalchemy.orm import Session
+
+from app.core.exceptions import BusinessRuleError, NotFoundError
+from app.models.activity import Activity
+from app.repositories.activity import ActivityRepository
+from app.repositories.user import UserRepository
+from app.schemas.activity import PARENT_FIELDS, ActivityCreate
+from app.services.crm_references import CrmRepositories, not_found_for, resolve_account_id
+from app.services.pagination import PageResult
+from app.services.transaction import write_transaction
+from app.services.user_validation import ensure_active_user, user_not_found_for
+
+
+def _parent_required() -> BusinessRuleError:
+    return BusinessRuleError(f"at least one of {', '.join(PARENT_FIELDS)} is required")
+
+
+# Backstops for races between validation and commit; other IntegrityErrors are re-raised.
+CONSTRAINT_ERRORS = {
+    "fk_activities_account_id_accounts": not_found_for("account_id", "account"),
+    "fk_activities_lead_id_leads": not_found_for("lead_id", "lead"),
+    "fk_activities_opportunity_id_opportunities": not_found_for("opportunity_id", "opportunity"),
+    "fk_activities_contact_id_contacts": not_found_for("contact_id", "contact"),
+    "fk_activities_created_by_id_users": user_not_found_for("created_by_id"),
+    "ck_activities_at_least_one_parent": _parent_required,
+}
+
+
+class ActivityService:
+    def __init__(
+        self,
+        session: Session,
+        activities: ActivityRepository,
+        crm: CrmRepositories,
+        users: UserRepository,
+    ) -> None:
+        self._session = session
+        self._activities = activities
+        self._crm = crm
+        self._users = users
+
+    def create_activity(self, data: ActivityCreate) -> Activity:
+        with write_transaction(self._session, CONSTRAINT_ERRORS):
+            account_id = resolve_account_id(
+                self._crm,
+                account_id=data.account_id,
+                lead_id=data.lead_id,
+                opportunity_id=data.opportunity_id,
+                contact_id=data.contact_id,
+            )
+            ensure_active_user(self._users, data.created_by_id, field="created_by_id")
+            # Store the canonical (possibly derived) account so account timelines are complete.
+            activity = self._activities.add(
+                Activity(**data.model_dump(exclude={"account_id"}), account_id=account_id)
+            )
+        return activity
+
+    def list_lead_activities(
+        self, lead_id: uuid.UUID, *, limit: int, offset: int
+    ) -> PageResult[Activity]:
+        if self._crm.leads.get(lead_id) is None:
+            raise NotFoundError(f"Lead {lead_id} not found")
+        items = self._activities.find_for_lead(lead_id, limit=limit, offset=offset)
+        total = self._activities.count_for_lead(lead_id)
+        return PageResult(items=items, total=total, limit=limit, offset=offset)

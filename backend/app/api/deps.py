@@ -9,14 +9,21 @@ from sqlalchemy import Engine
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.repositories.account import AccountRepository
+from app.repositories.activity import ActivityRepository
 from app.repositories.contact import ContactRepository
 from app.repositories.lead import LeadRepository
+from app.repositories.note import NoteRepository
 from app.repositories.opportunity import OpportunityRepository
+from app.repositories.timeline import TimelineRepository
 from app.repositories.user import UserRepository
 from app.services.account_service import AccountService
+from app.services.activity_service import ActivityService
 from app.services.contact_service import ContactService
+from app.services.crm_references import CrmRepositories
 from app.services.lead_service import LeadService
+from app.services.note_service import NoteService
 from app.services.opportunity_service import OpportunityService
+from app.services.timeline_service import TimelineService
 
 
 def get_engine(request: Request) -> Engine:
@@ -70,7 +77,35 @@ def get_opportunity_service(session: SessionDep) -> OpportunityService:
     )
 
 
+def _crm_repositories(session: Session) -> CrmRepositories:
+    return CrmRepositories(
+        accounts=AccountRepository(session),
+        leads=LeadRepository(session),
+        opportunities=OpportunityRepository(session),
+        contacts=ContactRepository(session),
+    )
+
+
+def get_activity_service(session: SessionDep) -> ActivityService:
+    return ActivityService(
+        session, ActivityRepository(session), _crm_repositories(session), UserRepository(session)
+    )
+
+
+def get_note_service(session: SessionDep) -> NoteService:
+    return NoteService(
+        session, NoteRepository(session), _crm_repositories(session), UserRepository(session)
+    )
+
+
+def get_timeline_service(session: SessionDep) -> TimelineService:
+    return TimelineService(AccountRepository(session), TimelineRepository(session))
+
+
 AccountServiceDep = Annotated[AccountService, Depends(get_account_service)]
 ContactServiceDep = Annotated[ContactService, Depends(get_contact_service)]
 LeadServiceDep = Annotated[LeadService, Depends(get_lead_service)]
 OpportunityServiceDep = Annotated[OpportunityService, Depends(get_opportunity_service)]
+ActivityServiceDep = Annotated[ActivityService, Depends(get_activity_service)]
+NoteServiceDep = Annotated[NoteService, Depends(get_note_service)]
+TimelineServiceDep = Annotated[TimelineService, Depends(get_timeline_service)]
