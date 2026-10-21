@@ -9,11 +9,11 @@ from app.models.account import Account
 from app.repositories.account import AccountRepository
 from app.repositories.user import UserRepository
 from app.schemas.account import AccountCreate
-from app.services.ownership import ensure_active_owner, owner_not_found
 from app.services.pagination import PageResult
 from app.services.transaction import write_transaction
+from app.services.user_validation import ensure_active_user, user_not_found_for
 
-CONSTRAINT_ERRORS = {"fk_accounts_owner_id_users": owner_not_found}
+CONSTRAINT_ERRORS = {"fk_accounts_owner_id_users": user_not_found_for("owner_id")}
 
 
 class AccountService:
@@ -26,7 +26,7 @@ class AccountService:
 
     def create_account(self, data: AccountCreate) -> Account:
         with write_transaction(self._session, CONSTRAINT_ERRORS):
-            ensure_active_owner(self._users, data.owner_id)
+            ensure_active_user(self._users, data.owner_id, field="owner_id")
             account = self._accounts.add(Account(**data.model_dump()))
         return account
 

@@ -1,5 +1,7 @@
 """Contact data access. Repositories never commit or roll back; services own transactions."""
 
+import uuid
+
 from sqlalchemy.orm import Session
 
 from app.models.contact import Contact
@@ -13,3 +15,6 @@ class ContactRepository:
         self._session.add(contact)
         self._session.flush()
         return contact
+
+    def get(self, contact_id: uuid.UUID) -> Contact | None:
+        return self._session.get(Contact, contact_id)

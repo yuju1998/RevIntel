@@ -6,8 +6,9 @@ Schema changes are managed with Alembic.
 This document is the authoritative schema specification. ORM models and migrations must
 match it. Change this document (with approval) before changing the schema.
 
-**Status:** schema phase 1 (`users`, `accounts`, `contacts`, `leads`, `opportunities`) is
-implemented in Alembic revision `d9abf148e9ed`. Phases 2–4 are designed, not implemented. The
+**Status:** schema phases 1–2 are implemented: phase 1 (`users`, `accounts`, `contacts`,
+`leads`, `opportunities`) in Alembic revision `d9abf148e9ed`, phase 2 (`activities`, `notes`)
+in `9d4d176a3488`. Phases 3–4 are designed, not implemented. The
 decisions behind this design are recorded in [Design decisions](#design-decisions-q1q14);
 intentionally postponed work is in [Deferred / future considerations](#deferred--future-considerations).
 
@@ -629,9 +630,20 @@ when the corresponding phase is built.
    - `account_id` + `contact_id`: `contact.account_id == account_id`
    - `opportunity_id` + `contact_id`: `opportunity.account_id == contact.account_id`
    - Notes: `account_id` + `opportunity_id` as above.
-   - `lead_id` has no account and is not part of this check. Lead-only activities/notes
-     are allowed.
-4. **Document chunk maintenance** (Phase 4): rebuild or delete a source's chunks when the
+   - `lead_id` has no account and is not part of this check. A lead may be combined with
+     account-scoped references; lead-only activities/notes are allowed.
+   - **Canonical `account_id`:** when `account_id` is omitted but an account-scoped
+     reference is given, the service stores the derived account (activity: from
+     `opportunity_id` or `contact_id`; note: from `opportunity_id`). So `account_id` is
+     NULL only for lead-only records, and account timelines and RAG can filter on
+     `account_id` alone. `lead_id` never implies an account.
+   - Implemented in `backend/app/services/crm_references.py`.
+4. **Activity and note authors** (Phase 2): `activities.created_by_id` and
+   `notes.author_id` are optional; if given they must refer to an existing, **active**
+   user. No current-user inference until authentication exists.
+5. **`activities.occurred_at`** (Phase 2) is when the activity actually happened: it must
+   be timezone-aware and not more than 5 minutes in the future (clock-skew allowance).
+6. **Document chunk maintenance** (Phase 4): rebuild or delete a source's chunks when the
    source changes, moves account, or is deleted; populate `source_timestamp` and
    `embedding_model`.
 
@@ -669,11 +681,12 @@ Rules:
   |---|---|
   | `ACCOUNT` | the account itself (`source_id = account_id`) |
   | `OPPORTUNITY` | `opportunities.account_id` |
-  | `ACTIVITY` | `activities.account_id`, else its opportunity's account, else its contact's account |
-  | `NOTE` | `notes.account_id`, else its opportunity's account |
+  | `ACTIVITY` | `activities.account_id` |
+  | `NOTE` | `notes.account_id` |
 
-  This derivation is safe because the service layer guarantees that an activity's or
-  note's references agree on one account.
+  Activity/note `account_id` is already canonical: the service stores the account derived
+  from the opportunity/contact and guarantees all references agree on one account
+  (service rule 3).
 - Activities and notes that resolve to no account (lead-only) are **not indexed** into the
   account RAG corpus in V1. `document_chunks.account_id` stays `NOT NULL`.
 - Only chunks whose `embedding_model` matches the configured `EMBEDDING_MODEL` should be
@@ -717,7 +730,7 @@ listed for its tables.
 | Schema phase | Tables | Also in the migration | TASKS.md phase |
 |---|---|---|---|
 | 1 ✅ `d9abf148e9ed` | `users`, `accounts`, `contacts`, `leads`, `opportunities` | Enum checks, non-negative checks, `ck_leads_converted_requires_converted_at` | Phase 1 — Backend |
-| 2 | `activities`, `notes` | `*_at_least_one_parent` checks, FK indexes incl. `created_by_id` / `author_id` | Phase 1 — Backend |
+| 2 ✅ `9d4d176a3488` | `activities`, `notes` | `*_at_least_one_parent` checks, FK indexes incl. `created_by_id` / `author_id` | Phase 1 — Backend |
 | 3 | `lead_predictions` | Idempotency unique constraint (also the `lead_id` index), probability range check | Phase 2 — Data + ML |
 | 4 | `document_chunks` | `CREATE EXTENSION IF NOT EXISTS vector`, explicit composite unique constraint, `chunk_index` check | Phase 4 — AI |
 
@@ -846,17 +859,22 @@ Automated, without Docker (`pytest`):
 
 Against PostgreSQL (`pytest -m integration`, requires `docker compose up -d`):
 
-- `test_migrations_integration.py`: downgrade to base and upgrade to head, documented indexes.
+- `test_migrations_integration.py`: downgrade to base and upgrade to head; each migration
+  applied and reverted on its own (`d9abf148e9ed` → head → `-1`); documented indexes; enum
+  CHECKs present exactly once.
 - `test_alembic_integration.py`: `alembic check` reports no drift; autogenerate sees
   `Base.metadata`.
 - `test_constraints_integration.py`: unique, CHECK, FK, `RESTRICT` and `SET NULL` behavior,
   UTC timestamps, `updated_at` changing only on real updates.
+- `test_phase2_constraints_integration.py`: at-least-one-parent and enum CHECKs, activity/note
+  foreign keys, `RESTRICT` on CRM parent deletion (SQL and ORM), `SET NULL` of
+  `created_by_id` / `author_id` on user deletion.
 
 Manual:
 
 ```bash
 alembic upgrade head
-alembic current -v   # d9abf148e9ed (head); URL printed with the password masked
+alembic current -v   # 9d4d176a3488 (head); URL printed with the password masked
 alembic check        # "No new upgrade operations detected."
 ```
 

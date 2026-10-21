@@ -106,7 +106,7 @@ Authentication is not implemented yet; all endpoints below are currently open.
 | Malformed JSON, wrong types, failed field validation, unknown fields, malformed UUID | `422` | FastAPI validation error: `{"detail": [{"loc": [...], "msg": "...", ...}]}` |
 | Valid UUID in the **path** that does not exist | `404` | `{"detail": "Account <id> not found"}` |
 | Valid UUID in the **body** referring to a nonexistent record (e.g. `account_id`, `owner_id`) | `422` | `{"detail": "account_id does not refer to an existing account"}` |
-| Business rule violated (e.g. inactive owner, creating a `CONVERTED` lead) | `422` | `{"detail": "owner_id refers to an inactive user"}` |
+| Business rule violated (e.g. inactive owner/creator/author, creating a `CONVERTED` lead, references to different accounts) | `422` | `{"detail": "owner_id refers to an inactive user"}` |
 
 Request bodies reject unknown fields (`422`), so a misspelled or unsupported field is never
 silently ignored.
@@ -154,6 +154,7 @@ Filters are optional, use exact matching, and combine with pagination.
 |---|---|
 | `GET /api/v1/accounts` | `industry` (exact, case-sensitive) |
 | `GET /api/v1/leads` | `status`, `lead_source` (enum values; unknown values return `422`) |
+| `GET /api/v1/accounts/{id}/timeline`, `GET /api/v1/leads/{id}/activities` | none (pagination only) |
 
 Examples: `GET /api/v1/leads?status=QUALIFIED&lead_source=WEB&limit=20&offset=20`,
 `GET /api/v1/accounts?industry=Software`.
@@ -267,6 +268,113 @@ Partial update. Updatable fields: `name`, `stage`, `amount`, `expected_close_dat
 - `{}` is a no-op: `200` with the unchanged opportunity; `updated_at` does not change.
 - `updated_at` advances only when a value actually changes.
 - `404` if the opportunity does not exist.
+
+### Activities
+
+#### `POST /api/v1/activities` → `201`
+
+| Field | Type | Required |
+|---|---|---|
+| `account_id`, `lead_id`, `opportunity_id`, `contact_id` | UUID | **at least one** (several allowed) |
+| `created_by_id` | UUID of an active user | no |
+| `activity_type` | `CALL`, `EMAIL`, `MEETING`, `DEMO`, `FOLLOW_UP` | yes |
+| `direction` | `INBOUND`, `OUTBOUND`, `INTERNAL` | yes |
+| `subject` | string (≤255), trimmed | no |
+| `body` | string; if given must contain non-whitespace; stored exactly as submitted | no |
+| `occurred_at` | timezone-aware ISO 8601 datetime, when it actually happened | yes |
+
+Rules:
+
+- `occurred_at` without a UTC offset is rejected (`422`), as is any value more than
+  **5 minutes in the future** (`422`). Values are returned in UTC.
+- Every supplied parent must exist (`422`, e.g. `"contact_id does not refer to an existing
+  contact"`).
+- `account_id`, the opportunity's account and the contact's account must all be the same
+  account (`422`, e.g. `"account_id, contact_id refer to different accounts"`). A
+  `lead_id` may be combined with any of them: leads have no account.
+- **`account_id` is derived** when omitted: from the opportunity or contact. The response
+  shows the stored (canonical) `account_id`. Lead-only activities keep `account_id: null`.
+- `created_by_id`, if given, must be an existing **active** user (`422`). It is never
+  inferred (no authentication yet).
+
+```json
+{
+  "id": "4ed37f2e-dca8-4415-b45f-ba355857c175",
+  "account_id": "0eb86761-b0c2-4822-8451-ea00b2ba097e",
+  "lead_id": null,
+  "opportunity_id": "0a6ac9fd-1898-4545-b1b3-e2af9eab2c30",
+  "contact_id": null,
+  "created_by_id": null,
+  "activity_type": "MEETING",
+  "direction": "OUTBOUND",
+  "subject": "Pricing review",
+  "body": null,
+  "occurred_at": "2026-10-21T17:06:17.855060Z",
+  "created_at": "2026-10-21T19:06:17.915919Z"
+}
+```
+
+#### `GET /api/v1/leads/{lead_id}/activities` → `200`
+
+Paginated `Page[Activity]` of activities with this `lead_id`, newest first by
+`occurred_at` (ties: `id` descending). `404` if the lead does not exist (a lead without
+activities returns an empty page); `422` for a malformed UUID or invalid pagination.
+
+### Notes
+
+#### `POST /api/v1/notes` → `201`
+
+| Field | Type | Required |
+|---|---|---|
+| `account_id`, `lead_id`, `opportunity_id` | UUID | **at least one** (several allowed) |
+| `author_id` | UUID of an active user | no |
+| `body` | string; must contain non-whitespace; stored exactly as submitted | yes |
+
+The same existence, cross-account and author rules as activities apply; `account_id` is
+derived from `opportunity_id` when omitted. Notes have no `contact_id`. There is no note
+update endpoint yet.
+
+### Account timeline
+
+#### `GET /api/v1/accounts/{account_id}/timeline` → `200`
+
+Activities and notes for the account in one newest-first stream, with the usual
+`limit`/`offset` pagination. Ordering and pagination are done by the database across
+**both** record types, so pages never overlap or skip records, and `total` counts
+activities + notes for the account.
+
+Each item is an activity or a note with two extra API-only fields:
+
+| Field | Description |
+|---|---|
+| `record_type` | `"activity"` or `"note"` (discriminator; the rest of the item has that record's fields) |
+| `event_timestamp` | Ordering timestamp: `occurred_at` for activities, `created_at` for notes |
+
+Order: `event_timestamp` descending, then `record_type` ascending (`activity` before
+`note`), then `id` descending, so equal timestamps always appear in the same order.
+
+Included: records whose `account_id` is this account (including records linked only via
+the account's opportunities or contacts, because their `account_id` is derived). Lead-only
+records (`account_id: null`) and other accounts' records never appear.
+
+```json
+{
+  "items": [
+    {"record_type": "note", "event_timestamp": "2026-10-21T19:06:18.008385Z",
+     "id": "e76be814-...", "account_id": "0eb86761-...", "lead_id": null,
+     "opportunity_id": null, "author_id": null, "body": "  Champion: CFO\n",
+     "created_at": "2026-10-21T19:06:18.008385Z", "updated_at": "2026-10-21T19:06:18.008385Z"},
+    {"record_type": "activity", "event_timestamp": "2026-10-21T17:06:17.855060Z",
+     "id": "4ed37f2e-...", "account_id": "0eb86761-...", "activity_type": "MEETING",
+     "direction": "OUTBOUND", "occurred_at": "2026-10-21T17:06:17.855060Z", "...": "..."}
+  ],
+  "total": 2,
+  "limit": 50,
+  "offset": 0
+}
+```
+
+`404` if the account does not exist; `422` for a malformed UUID or invalid pagination.
 
 ## Tests
 

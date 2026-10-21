@@ -10,11 +10,11 @@ from app.models.lead import Lead
 from app.repositories.lead import LeadRepository
 from app.repositories.user import UserRepository
 from app.schemas.lead import LeadCreate
-from app.services.ownership import ensure_active_owner, owner_not_found
 from app.services.pagination import PageResult
 from app.services.transaction import write_transaction
+from app.services.user_validation import ensure_active_user, user_not_found_for
 
-CONSTRAINT_ERRORS = {"fk_leads_owner_id_users": owner_not_found}
+CONSTRAINT_ERRORS = {"fk_leads_owner_id_users": user_not_found_for("owner_id")}
 
 
 class LeadService:
@@ -28,7 +28,7 @@ class LeadService:
             # Conversion will be an explicit workflow; the DB CHECK is the final backstop.
             raise BusinessRuleError("Leads cannot be created with status CONVERTED")
         with write_transaction(self._session, CONSTRAINT_ERRORS):
-            ensure_active_owner(self._users, data.owner_id)
+            ensure_active_user(self._users, data.owner_id, field="owner_id")
             lead = self._leads.add(Lead(**data.model_dump()))
         return lead
 

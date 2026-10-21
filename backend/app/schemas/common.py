@@ -44,6 +44,18 @@ CrmEmail = Annotated[
     AfterValidator(_validate_email_syntax),
 ]
 
+
+
+def _require_non_whitespace(value: str) -> str:
+    if not value.strip():
+        raise ValueError("must contain non-whitespace text")
+    return value
+
+
+# Long free-form text (TEXT columns): must contain non-whitespace, but is stored exactly as
+# submitted so formatting (leading indentation, line breaks) is preserved.
+NonBlankText = Annotated[str, AfterValidator(_require_non_whitespace)]
+
 NonNegativeInt32 = Annotated[int, Field(ge=0, le=INT32_MAX)]
 
 CENTS = Decimal("0.01")

@@ -4,10 +4,12 @@ import uuid
 
 from fastapi import APIRouter, status
 
-from app.api.deps import LeadServiceDep
+from app.api.deps import ActivityServiceDep, LeadServiceDep
 from app.api.pagination import PageParamsDep
+from app.models.activity import Activity
 from app.models.enums import LeadSource, LeadStatus
 from app.models.lead import Lead
+from app.schemas.activity import ActivityRead
 from app.schemas.common import Page
 from app.schemas.lead import LeadCreate, LeadRead
 from app.services.pagination import PageResult
@@ -48,3 +50,15 @@ def list_leads(
 )
 def get_lead(lead_id: uuid.UUID, service: LeadServiceDep) -> Lead:
     return service.get_lead(lead_id)
+
+
+@router.get(
+    "/{lead_id}/activities",
+    response_model=Page[ActivityRead],
+    responses={404: {"description": "Lead not found"}},
+)
+def list_lead_activities(
+    lead_id: uuid.UUID, service: ActivityServiceDep, page: PageParamsDep
+) -> PageResult[Activity]:
+    """Activities linked to the lead, newest first by occurred_at (ties by id)."""
+    return service.list_lead_activities(lead_id, limit=page.limit, offset=page.offset)
