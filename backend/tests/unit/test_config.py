@@ -7,6 +7,14 @@ from app.core.config import DatabaseSettings, Settings, get_database_settings, g
 
 pytestmark = pytest.mark.usefixtures("clean_env")
 
+TEST_JWT_SECRET = "config-test-jwt-secret-0123456789abcdef"
+
+
+@pytest.fixture(autouse=True)
+def _jwt_secret(clean_env: None, monkeypatch: pytest.MonkeyPatch) -> None:
+    # Settings requires JWT_SECRET; provide it so other assertions stay focused.
+    monkeypatch.setenv("JWT_SECRET", TEST_JWT_SECRET)
+
 VALID_DATABASE_URL = "postgresql+psycopg://revintel:s3cret@localhost:5432/revintel"
 VALID_REDIS_URL = "redis://localhost:6379/0"
 
@@ -20,7 +28,6 @@ def test_loads_settings_from_env_file(tmp_path: Path) -> None:
         f"REDIS_URL={VALID_REDIS_URL}\n"
         "DB_POOL_SIZE=7\n"
         # Keys for features that are not built yet must not break loading.
-        "JWT_SECRET=CHANGE_ME\n"
         "MLFLOW_TRACKING_URI=http://localhost:5001\n"
     )
 
@@ -31,7 +38,7 @@ def test_loads_settings_from_env_file(tmp_path: Path) -> None:
     assert str(settings.database_url) == VALID_DATABASE_URL
     assert str(settings.redis_url) == VALID_REDIS_URL
     assert settings.db_pool_size == 7
-    assert not hasattr(settings, "jwt_secret")
+    assert not hasattr(settings, "mlflow_tracking_uri")
 
 
 def test_environment_variables_override_env_file(
@@ -198,3 +205,58 @@ def test_get_database_settings_is_cached_and_independent_of_redis(
     assert get_database_settings() is get_database_settings()
     with pytest.raises(ValidationError):
         get_settings()
+
+
+def _app_settings(**fields: object) -> Settings:
+    values = {"database_url": VALID_DATABASE_URL, "redis_url": VALID_REDIS_URL}
+    return Settings(_env_file=None, **{**values, **fields})
+
+
+def test_jwt_settings_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
+    settings = _app_settings()
+
+    assert settings.jwt_secret.get_secret_value() == TEST_JWT_SECRET
+    assert settings.jwt_algorithm == "HS256"
+    assert settings.access_token_expire_minutes == 60
+
+
+def test_jwt_secret_is_required(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("JWT_SECRET")
+
+    with pytest.raises(ValidationError) as exc_info:
+        _app_settings()
+
+    assert [error["loc"] for error in exc_info.value.errors()] == [("jwt_secret",)]
+
+
+def test_jwt_secret_must_be_at_least_32_characters() -> None:
+    with pytest.raises(ValidationError) as exc_info:
+        _app_settings(jwt_secret="too-short-secret")
+
+    assert "too-short-secret" not in str(exc_info.value)
+
+
+@pytest.mark.parametrize("algorithm", ["HS512", "RS256", "none"])
+def test_only_hs256_is_accepted(algorithm: str) -> None:
+    with pytest.raises(ValidationError):
+        _app_settings(jwt_algorithm=algorithm)
+
+
+@pytest.mark.parametrize("minutes", [0, 1441])
+def test_token_lifetime_is_bounded(minutes: int) -> None:
+    with pytest.raises(ValidationError):
+        _app_settings(access_token_expire_minutes=minutes)
+
+
+def test_jwt_secret_is_hidden_in_repr() -> None:
+    settings = _app_settings()
+
+    assert TEST_JWT_SECRET not in repr(settings)
+    assert TEST_JWT_SECRET not in str(settings.model_dump())
+
+
+def test_database_settings_do_not_require_jwt_secret(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("JWT_SECRET")
+    monkeypatch.setenv("DATABASE_URL", VALID_DATABASE_URL)
+
+    assert DatabaseSettings().database_url is not None

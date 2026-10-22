@@ -13,6 +13,8 @@ from app.main import create_app
 # Unit tests point at closed ports so they can never depend on Docker by accident.
 UNREACHABLE_DATABASE_URL = "postgresql+psycopg://revintel:s3cret@127.0.0.1:1/revintel_test"
 UNREACHABLE_REDIS_URL = "redis://:s3cret@127.0.0.1:1/0"
+# Test-only signing key (>= 32 characters).
+TEST_JWT_SECRET = "unit-test-jwt-secret-0123456789abcdef"
 
 SETTINGS_ENV_VARS = (
     "APP_NAME",
@@ -24,6 +26,9 @@ SETTINGS_ENV_VARS = (
     "DB_CONNECT_TIMEOUT_SECONDS",
     "REDIS_URL",
     "REDIS_SOCKET_TIMEOUT_SECONDS",
+    "JWT_SECRET",
+    "JWT_ALGORITHM",
+    "ACCESS_TOKEN_EXPIRE_MINUTES",
 )
 
 
@@ -42,6 +47,7 @@ def settings() -> Settings:
         environment="test",
         database_url=UNREACHABLE_DATABASE_URL,
         redis_url=UNREACHABLE_REDIS_URL,
+        jwt_secret=TEST_JWT_SECRET,
     )
 
 

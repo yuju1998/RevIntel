@@ -13,7 +13,7 @@
 - [x] Opportunity
 - [x] Activity
 - [x] Note
-- [ ] Authentication
+- [x] Authentication
 - [ ] Redis
 - [ ] Tests
 

@@ -5,6 +5,7 @@ from datetime import datetime
 
 from sqlalchemy.orm import Session
 
+from app.core.security import hash_password
 from app.models import Account, Activity, Contact, Lead, Note, Opportunity, User
 from app.models.enums import (
     ActivityDirection,
@@ -25,10 +26,12 @@ def create_user(
     email: str | None = None,
     is_active: bool = True,
     role: UserRole = UserRole.SALES_REP,
+    password: str | None = None,
 ) -> User:
+    """Direct insert. With `password`, stores a real Argon2 hash so the user can log in."""
     user = User(
         email=email or f"user-{uuid.uuid4().hex[:12]}@example.com",
-        password_hash=FAKE_PASSWORD_HASH,
+        password_hash=hash_password(password) if password else FAKE_PASSWORD_HASH,
         full_name="Test User",
         role=role,
         is_active=is_active,

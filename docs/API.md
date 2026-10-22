@@ -37,6 +37,9 @@ The API needs every required variable below. Alembic only needs `DATABASE_URL` a
 | `DB_CONNECT_TIMEOUT_SECONDS` | no | `3` | libpq connect timeout (integer seconds). |
 | `REDIS_URL` | yes | — | `redis://` or `rediss://`. |
 | `REDIS_SOCKET_TIMEOUT_SECONDS` | no | `2` | Applies to connect and to commands. |
+| `JWT_SECRET` | yes | — | Signing key for access tokens; at least 32 characters. Never commit or log it. |
+| `JWT_ALGORITHM` | no | `HS256` | Fixed to `HS256` in V1; any other value is rejected. |
+| `ACCESS_TOKEN_EXPIRE_MINUTES` | no | `60` | 1–1440. |
 
 Invalid or missing required settings stop the application at startup. Validation errors
 do not echo the offending values, so connection strings do not end up in logs.
@@ -95,9 +98,75 @@ connection strings, credentials and exception messages are never returned.
 | `checks.<name>.status` | `"ok"` \| `"error"` | Result of an individual dependency check. |
 | `checks.<name>.latency_ms` | number | Time spent on the check, in milliseconds. |
 
+## Authentication
+
+Stateless JWT bearer authentication. There is no signup, refresh token, password reset or
+SSO in V1.
+
+- **Protected:** every CRM mutation (`POST /accounts`, `POST /contacts`, `POST /leads`,
+  `POST /opportunities`, `PATCH /opportunities/{id}`, `POST /activities`, `POST /notes`)
+  and `GET /users/me`.
+- **Public:** `POST /auth/login`, `/health`, `/ready`, and all CRM `GET` endpoints.
+- Send the token as `Authorization: Bearer <access_token>`. In Swagger UI (`/docs`), use
+  **Authorize** and paste the token.
+- Missing, malformed, expired or otherwise invalid tokens, and tokens of deleted or
+  **inactive** users, return `401` with `WWW-Authenticate: Bearer` and
+  `{"detail": "Could not validate credentials"}`. Authentication is checked before the
+  request body, so an unauthenticated request with an invalid body gets `401`, not `422`.
+- The user's role and active flag are read from the database on every request; they are
+  not taken from the token. Deactivating a user blocks their existing tokens immediately.
+- Roles: `ADMIN` and `SALES_REP` currently have the same permissions. Insufficient role,
+  where a future endpoint requires one, returns `403 {"detail": "Insufficient permissions"}`.
+
+### `POST /api/v1/auth/login` → `200`
+
+```json
+{"email": "rep@example.com", "password": "..."}
+```
+
+The email is matched case-insensitively (trimmed and lowercased). Response:
+
+```json
+{"access_token": "eyJ...", "token_type": "bearer", "expires_in": 3600}
+```
+
+Access tokens are HS256 JWTs that expire after `ACCESS_TOKEN_EXPIRE_MINUTES` (60). Claims:
+`sub` (user id), `iat`, `exp`, `iss` = `revintel`, `aud` = `revintel-api`,
+`type` = `access`. No role, email or status is stored in the token.
+
+Unknown email, wrong password and inactive user all return the same
+`401 {"detail": "Incorrect email or password"}`. Malformed login bodies return `422`;
+unlike other endpoints, these validation errors never include the submitted input, so the
+password is never echoed back.
+
+### `GET /api/v1/users/me` → `200`
+
+The authenticated user (never includes the password hash):
+
+```json
+{"id": "...", "email": "rep@example.com", "full_name": "Sales Rep", "role": "SALES_REP",
+ "is_active": true, "created_at": "...", "updated_at": "..."}
+```
+
+### Creating users
+
+There is no user API. Create users with the CLI from the repository root (needs only
+`DATABASE_URL`); it uses the same service as the application (email lowercased, Argon2
+hash, duplicate emails rejected case-insensitively):
+
+```bash
+PYTHONPATH=backend python -m app.cli.create_user \
+    --email admin@example.com --full-name "Ada Admin" --role ADMIN
+# prompts for the password twice (12-1024 characters); for scripts:
+printf '%s\n' "$PASSWORD" | PYTHONPATH=backend python -m app.cli.create_user ... --password-stdin
+```
+
+Never pass passwords as command-line arguments (they end up in shell history and process
+lists).
+
 ## CRM API conventions (`/api/v1`)
 
-Authentication is not implemented yet; all endpoints below are currently open.
+Mutations require a bearer token (see [Authentication](#authentication)); reads are public.
 
 ### Errors
 
@@ -106,7 +175,9 @@ Authentication is not implemented yet; all endpoints below are currently open.
 | Malformed JSON, wrong types, failed field validation, unknown fields, malformed UUID | `422` | FastAPI validation error: `{"detail": [{"loc": [...], "msg": "...", ...}]}` |
 | Valid UUID in the **path** that does not exist | `404` | `{"detail": "Account <id> not found"}` |
 | Valid UUID in the **body** referring to a nonexistent record (e.g. `account_id`, `owner_id`) | `422` | `{"detail": "account_id does not refer to an existing account"}` |
-| Business rule violated (e.g. inactive owner/creator/author, creating a `CONVERTED` lead, references to different accounts) | `422` | `{"detail": "owner_id refers to an inactive user"}` |
+| Business rule violated (e.g. inactive owner, creating a `CONVERTED` lead, references to different accounts) | `422` | `{"detail": "owner_id refers to an inactive user"}` |
+| Missing/invalid/expired token, or inactive/deleted user | `401` | `{"detail": "Could not validate credentials"}` |
+| Authenticated but role not allowed (no V1 endpoint yet) | `403` | `{"detail": "Insufficient permissions"}` |
 
 Request bodies reject unknown fields (`422`), so a misspelled or unsupported field is never
 silently ignored.
@@ -126,7 +197,8 @@ silently ignored.
 - **Contact and lead emails** are trimmed and syntax-checked, but otherwise stored exactly
   as entered (casing preserved). They are not unique.
 - **Counts** (`employee_count`, `company_size`) are integers `>= 0`.
-- **`owner_id`** is optional. If given, it must refer to an existing, **active** user,
+- **`owner_id`** is optional and never defaults to the authenticated user (ownership is an
+  assignment, not authorship). If given, it must refer to an existing, **active** user,
   otherwise `422`. Owners are never assigned automatically.
 
 ### Pagination
@@ -276,7 +348,6 @@ Partial update. Updatable fields: `name`, `stage`, `amount`, `expected_close_dat
 | Field | Type | Required |
 |---|---|---|
 | `account_id`, `lead_id`, `opportunity_id`, `contact_id` | UUID | **at least one** (several allowed) |
-| `created_by_id` | UUID of an active user | no |
 | `activity_type` | `CALL`, `EMAIL`, `MEETING`, `DEMO`, `FOLLOW_UP` | yes |
 | `direction` | `INBOUND`, `OUTBOUND`, `INTERNAL` | yes |
 | `subject` | string (≤255), trimmed | no |
@@ -294,8 +365,8 @@ Rules:
   `lead_id` may be combined with any of them: leads have no account.
 - **`account_id` is derived** when omitted: from the opportunity or contact. The response
   shows the stored (canonical) `account_id`. Lead-only activities keep `account_id: null`.
-- `created_by_id`, if given, must be an existing **active** user (`422`). It is never
-  inferred (no authentication yet).
+- **`created_by_id` is always the authenticated user.** It is not accepted in the request
+  (sending it returns `422`), so clients cannot record activities as someone else.
 
 ```json
 {
@@ -327,10 +398,10 @@ activities returns an empty page); `422` for a malformed UUID or invalid paginat
 | Field | Type | Required |
 |---|---|---|
 | `account_id`, `lead_id`, `opportunity_id` | UUID | **at least one** (several allowed) |
-| `author_id` | UUID of an active user | no |
 | `body` | string; must contain non-whitespace; stored exactly as submitted | yes |
 
-The same existence, cross-account and author rules as activities apply; `account_id` is
+The same existence and cross-account rules as activities apply. **`author_id` is always the
+authenticated user** and is not accepted in the request (`422`). `account_id` is
 derived from `opportunity_id` when omitted. Notes have no `contact_id`. There is no note
 update endpoint yet.
 

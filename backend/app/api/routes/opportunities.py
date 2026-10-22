@@ -4,6 +4,7 @@ import uuid
 
 from fastapi import APIRouter, status
 
+from app.api.auth import UNAUTHORIZED_RESPONSE, RequireUser
 from app.api.deps import OpportunityServiceDep
 from app.models.opportunity import Opportunity
 from app.schemas.opportunity import OpportunityCreate, OpportunityRead, OpportunityUpdate
@@ -15,8 +16,10 @@ router = APIRouter(prefix="/opportunities", tags=["opportunities"])
     "",
     response_model=OpportunityRead,
     status_code=status.HTTP_201_CREATED,
+    dependencies=[RequireUser],
     responses={
-        422: {"description": "Validation error, unknown account_id, or owner_id unknown/inactive"}
+        **UNAUTHORIZED_RESPONSE,
+        422: {"description": "Validation error, unknown account_id, or owner_id unknown/inactive"},
     },
 )
 def create_opportunity(payload: OpportunityCreate, service: OpportunityServiceDep) -> Opportunity:
@@ -26,7 +29,9 @@ def create_opportunity(payload: OpportunityCreate, service: OpportunityServiceDe
 @router.patch(
     "/{opportunity_id}",
     response_model=OpportunityRead,
+    dependencies=[RequireUser],
     responses={
+        **UNAUTHORIZED_RESPONSE,
         404: {"description": "Opportunity not found"},
         422: {"description": "Validation error, or owner_id unknown/inactive"},
     },

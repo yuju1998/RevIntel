@@ -4,6 +4,7 @@ import uuid
 
 from fastapi import APIRouter, status
 
+from app.api.auth import UNAUTHORIZED_RESPONSE, RequireUser
 from app.api.deps import ActivityServiceDep, LeadServiceDep
 from app.api.pagination import PageParamsDep
 from app.models.activity import Activity
@@ -21,10 +22,12 @@ router = APIRouter(prefix="/leads", tags=["leads"])
     "",
     response_model=LeadRead,
     status_code=status.HTTP_201_CREATED,
+    dependencies=[RequireUser],
     responses={
+        **UNAUTHORIZED_RESPONSE,
         422: {
             "description": "Validation error, status CONVERTED, or owner_id unknown/inactive"
-        }
+        },
     },
 )
 def create_lead(payload: LeadCreate, service: LeadServiceDep) -> Lead:

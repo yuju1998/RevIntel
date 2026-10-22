@@ -18,7 +18,7 @@ class ResponseModel(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
-def _validate_email_syntax(value: str) -> str:
+def validate_email_syntax(value: str) -> str:
     """Validate email syntax but keep the caller's spelling and casing.
 
     Contact and lead emails are stored as entered (docs/DATABASE.md), so the
@@ -41,7 +41,7 @@ Website = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, 
 CrmEmail = Annotated[
     str,
     StringConstraints(strip_whitespace=True, min_length=1, max_length=320),
-    AfterValidator(_validate_email_syntax),
+    AfterValidator(validate_email_syntax),
 ]
 
 

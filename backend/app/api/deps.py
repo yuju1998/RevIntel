@@ -87,15 +87,11 @@ def _crm_repositories(session: Session) -> CrmRepositories:
 
 
 def get_activity_service(session: SessionDep) -> ActivityService:
-    return ActivityService(
-        session, ActivityRepository(session), _crm_repositories(session), UserRepository(session)
-    )
+    return ActivityService(session, ActivityRepository(session), _crm_repositories(session))
 
 
 def get_note_service(session: SessionDep) -> NoteService:
-    return NoteService(
-        session, NoteRepository(session), _crm_repositories(session), UserRepository(session)
-    )
+    return NoteService(session, NoteRepository(session), _crm_repositories(session))
 
 
 def get_timeline_service(session: SessionDep) -> TimelineService:

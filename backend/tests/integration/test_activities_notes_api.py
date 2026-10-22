@@ -7,7 +7,7 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
-from app.models import Account
+from app.models import Account, User
 from tests.integration.factories import (
     create_account,
     create_activity,
@@ -47,9 +47,8 @@ def account(db_session: Session) -> Account:
 
 
 def test_create_activity_with_all_consistent_parents(
-    api_client: TestClient, db_session: Session, account: Account
+    api_client: TestClient, db_session: Session, account: Account, auth_user: User
 ) -> None:
-    user = create_user(db_session)
     lead = create_lead(db_session)
     opportunity = create_opportunity(db_session, account)
     contact = create_contact(db_session, account)
@@ -61,7 +60,6 @@ def test_create_activity_with_all_consistent_parents(
         lead_id=lead.id,
         opportunity_id=opportunity.id,
         contact_id=contact.id,
-        created_by_id=user.id,
         subject="  QBR  ",
         body=body,
     )
@@ -70,7 +68,8 @@ def test_create_activity_with_all_consistent_parents(
     created = response.json()
     assert created["account_id"] == str(account.id)
     assert created["lead_id"] == str(lead.id)
-    assert created["created_by_id"] == str(user.id)
+    # Authorship comes from the access token, not the request.
+    assert created["created_by_id"] == str(auth_user.id)
     assert created["subject"] == "QBR"
     assert created["body"] == body
     assert created["occurred_at"].endswith("Z")
@@ -156,18 +155,16 @@ def test_nonexistent_parent_returns_422(api_client: TestClient, field: str) -> N
     assert field in response.json()["detail"]
 
 
-def test_activity_creator_must_exist_and_be_active(
+def test_created_by_id_cannot_be_supplied(
     api_client: TestClient, db_session: Session, account: Account
 ) -> None:
-    inactive = create_user(db_session, is_active=False)
+    other_user = create_user(db_session)
 
-    missing = _post_activity(api_client, account_id=account.id, created_by_id=uuid.uuid4())
-    deactivated = _post_activity(api_client, account_id=account.id, created_by_id=inactive.id)
+    response = _post_activity(api_client, account_id=account.id, created_by_id=other_user.id)
 
-    assert missing.status_code == 422
-    assert "created_by_id does not refer to an existing user" in missing.json()["detail"]
-    assert deactivated.status_code == 422
-    assert "created_by_id refers to an inactive user" in deactivated.json()["detail"]
+    # Impersonation attempt: the field is not part of the request schema.
+    assert response.status_code == 422
+    assert response.json()["detail"][0]["type"] == "extra_forbidden"
 
 
 @pytest.mark.parametrize(
@@ -217,19 +214,18 @@ def test_occurred_at_within_clock_skew_is_accepted(
 
 
 def test_create_note_preserves_body_and_derives_account(
-    api_client: TestClient, db_session: Session, account: Account
+    api_client: TestClient, db_session: Session, account: Account, auth_user: User
 ) -> None:
-    author = create_user(db_session)
     opportunity = create_opportunity(db_session, account)
     body = "\n  - renewal risk\n  - champion left\n"
 
-    response = _post_note(api_client, opportunity_id=opportunity.id, author_id=author.id, body=body)
+    response = _post_note(api_client, opportunity_id=opportunity.id, body=body)
 
     assert response.status_code == 201, response.json()
     note = response.json()
     assert note["body"] == body
     assert note["account_id"] == str(account.id)
-    assert note["author_id"] == str(author.id)
+    assert note["author_id"] == str(auth_user.id)
     assert note["created_at"] == note["updated_at"]
 
 
@@ -251,15 +247,15 @@ def test_note_cross_account_reference_is_rejected(
     assert "refer to different accounts" in response.json()["detail"]
 
 
-def test_note_author_must_exist_and_be_active(
+def test_author_id_cannot_be_supplied(
     api_client: TestClient, db_session: Session, account: Account
 ) -> None:
-    inactive = create_user(db_session, is_active=False)
+    other_user = create_user(db_session)
 
-    assert _post_note(api_client, account_id=account.id, author_id=uuid.uuid4()).status_code == 422
-    response = _post_note(api_client, account_id=account.id, author_id=inactive.id)
+    response = _post_note(api_client, account_id=account.id, author_id=other_user.id)
+
     assert response.status_code == 422
-    assert "author_id refers to an inactive user" in response.json()["detail"]
+    assert response.json()["detail"][0]["type"] == "extra_forbidden"
 
 
 @pytest.mark.parametrize(

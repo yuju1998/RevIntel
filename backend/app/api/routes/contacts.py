@@ -2,6 +2,7 @@
 
 from fastapi import APIRouter, status
 
+from app.api.auth import UNAUTHORIZED_RESPONSE, RequireUser
 from app.api.deps import ContactServiceDep
 from app.models.contact import Contact
 from app.schemas.contact import ContactCreate, ContactRead
@@ -13,7 +14,11 @@ router = APIRouter(prefix="/contacts", tags=["contacts"])
     "",
     response_model=ContactRead,
     status_code=status.HTTP_201_CREATED,
-    responses={422: {"description": "Validation error, or account_id does not exist"}},
+    dependencies=[RequireUser],
+    responses={
+        **UNAUTHORIZED_RESPONSE,
+        422: {"description": "Validation error, or account_id does not exist"},
+    },
 )
 def create_contact(payload: ContactCreate, service: ContactServiceDep) -> Contact:
     return service.create_contact(payload)

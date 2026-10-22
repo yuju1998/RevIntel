@@ -9,6 +9,7 @@ from unittest.mock import MagicMock
 import pytest
 from fastapi.testclient import TestClient
 
+from app.api.auth import get_current_user
 from app.api.deps import (
     get_account_service,
     get_contact_service,
@@ -18,8 +19,8 @@ from app.api.deps import (
 from app.core.config import Settings
 from app.core.exceptions import BusinessRuleError, NotFoundError, RelatedResourceNotFoundError
 from app.main import create_app
-from app.models import Account, Contact, Lead, Opportunity
-from app.models.enums import LeadSource, LeadStatus, OpportunityStage
+from app.models import Account, Contact, Lead, Opportunity, User
+from app.models.enums import LeadSource, LeadStatus, OpportunityStage, UserRole
 from app.services.account_service import AccountService
 from app.services.contact_service import ContactService
 from app.services.lead_service import LeadService
@@ -27,6 +28,14 @@ from app.services.opportunity_service import OpportunityService
 from app.services.pagination import PageResult
 
 NOW = datetime(2026, 10, 20, 12, 0, tzinfo=UTC)
+
+AUTH_USER = User(
+    id=uuid.uuid4(),
+    email="rep@example.com",
+    full_name="Sales Rep",
+    role=UserRole.SALES_REP,
+    is_active=True,
+)
 
 
 def _account(**fields: object) -> Account:
@@ -82,6 +91,8 @@ def client(settings: Settings, services: dict[str, MagicMock]) -> Iterator[TestC
     app.dependency_overrides[get_contact_service] = lambda: services["contact"]
     app.dependency_overrides[get_lead_service] = lambda: services["lead"]
     app.dependency_overrides[get_opportunity_service] = lambda: services["opportunity"]
+    # Authentication itself is covered by test_auth_routes / integration tests.
+    app.dependency_overrides[get_current_user] = lambda: AUTH_USER
     with TestClient(app) as test_client:
         yield test_client
 

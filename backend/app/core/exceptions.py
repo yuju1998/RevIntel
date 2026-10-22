@@ -17,3 +17,14 @@ class RelatedResourceNotFoundError(DomainError):
 
 class BusinessRuleError(DomainError):
     """The request is well-formed but violates a business rule."""
+
+
+class AuthenticationError(DomainError):
+    """Credentials are missing, invalid or expired, or the user is unknown or inactive.
+
+    Messages are deliberately generic and never include tokens or passwords.
+    """
+
+
+class PermissionDeniedError(DomainError):
+    """The authenticated user's role is not allowed to perform the action."""

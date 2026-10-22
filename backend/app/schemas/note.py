@@ -15,7 +15,7 @@ class NoteCreate(RequestModel):
     account_id: uuid.UUID | None = None
     lead_id: uuid.UUID | None = None
     opportunity_id: uuid.UUID | None = None
-    author_id: uuid.UUID | None = None
+    # author_id is not accepted: it is always the authenticated user.
     # Must contain non-whitespace text; stored as submitted.
     body: NonBlankText
 

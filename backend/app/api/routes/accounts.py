@@ -5,6 +5,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Query, status
 
+from app.api.auth import UNAUTHORIZED_RESPONSE, RequireUser
 from app.api.deps import AccountServiceDep, TimelineServiceDep
 from app.api.pagination import PageParamsDep
 from app.models.account import Account
@@ -20,7 +21,11 @@ router = APIRouter(prefix="/accounts", tags=["accounts"])
     "",
     response_model=AccountRead,
     status_code=status.HTTP_201_CREATED,
-    responses={422: {"description": "Validation error, or owner_id is unknown or inactive"}},
+    dependencies=[RequireUser],
+    responses={
+        **UNAUTHORIZED_RESPONSE,
+        422: {"description": "Validation error, or owner_id is unknown or inactive"},
+    },
 )
 def create_account(payload: AccountCreate, service: AccountServiceDep) -> Account:
     return service.create_account(payload)
