@@ -2,7 +2,17 @@
 
 from fastapi import APIRouter
 
-from app.api.routes import accounts, activities, contacts, health, leads, notes, opportunities
+from app.api.routes import (
+    accounts,
+    activities,
+    auth,
+    contacts,
+    health,
+    leads,
+    notes,
+    opportunities,
+    users,
+)
 
 API_V1_PREFIX = "/api/v1"
 
@@ -13,6 +23,8 @@ api_router.include_router(health.router)
 
 # Business endpoints are registered on this router.
 v1_router = APIRouter(prefix=API_V1_PREFIX)
+v1_router.include_router(auth.router)
+v1_router.include_router(users.router)
 v1_router.include_router(accounts.router)
 v1_router.include_router(contacts.router)
 v1_router.include_router(leads.router)

@@ -5,14 +5,13 @@ import uuid
 from sqlalchemy.orm import Session
 
 from app.core.exceptions import BusinessRuleError, NotFoundError
+from app.core.security import invalid_token
 from app.models.activity import Activity
 from app.repositories.activity import ActivityRepository
-from app.repositories.user import UserRepository
 from app.schemas.activity import PARENT_FIELDS, ActivityCreate
 from app.services.crm_references import CrmRepositories, not_found_for, resolve_account_id
 from app.services.pagination import PageResult
 from app.services.transaction import write_transaction
-from app.services.user_validation import ensure_active_user, user_not_found_for
 
 
 def _parent_required() -> BusinessRuleError:
@@ -25,7 +24,8 @@ CONSTRAINT_ERRORS = {
     "fk_activities_lead_id_leads": not_found_for("lead_id", "lead"),
     "fk_activities_opportunity_id_opportunities": not_found_for("opportunity_id", "opportunity"),
     "fk_activities_contact_id_contacts": not_found_for("contact_id", "contact"),
-    "fk_activities_created_by_id_users": user_not_found_for("created_by_id"),
+    # The authenticated user was deleted mid-request: their credentials are no longer valid.
+    "fk_activities_created_by_id_users": invalid_token,
     "ck_activities_at_least_one_parent": _parent_required,
 }
 
@@ -36,14 +36,13 @@ class ActivityService:
         session: Session,
         activities: ActivityRepository,
         crm: CrmRepositories,
-        users: UserRepository,
     ) -> None:
         self._session = session
         self._activities = activities
         self._crm = crm
-        self._users = users
 
-    def create_activity(self, data: ActivityCreate) -> Activity:
+    def create_activity(self, data: ActivityCreate, *, created_by_id: uuid.UUID) -> Activity:
+        """created_by_id is the authenticated (active) user, never client input."""
         with write_transaction(self._session, CONSTRAINT_ERRORS):
             account_id = resolve_account_id(
                 self._crm,
@@ -52,10 +51,13 @@ class ActivityService:
                 opportunity_id=data.opportunity_id,
                 contact_id=data.contact_id,
             )
-            ensure_active_user(self._users, data.created_by_id, field="created_by_id")
             # Store the canonical (possibly derived) account so account timelines are complete.
             activity = self._activities.add(
-                Activity(**data.model_dump(exclude={"account_id"}), account_id=account_id)
+                Activity(
+                    **data.model_dump(exclude={"account_id"}),
+                    account_id=account_id,
+                    created_by_id=created_by_id,
+                )
             )
         return activity
 

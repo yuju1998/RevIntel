@@ -21,7 +21,9 @@ class User(UUIDPrimaryKeyMixin, TimestampMixin, Base):
 
     # Canonical lowercase; the future user/auth service normalizes before persistence.
     email: Mapped[str] = mapped_column(String(320), unique=True)
-    password_hash: Mapped[str] = mapped_column(String(255))
+    # Deferred: loaded only when login verifies a password, so ordinary queries (e.g.
+    # resolving the current user on every request) never read or log it.
+    password_hash: Mapped[str] = mapped_column(String(255), deferred=True)
     full_name: Mapped[str] = mapped_column(String(255))
     role: Mapped[UserRole] = mapped_column(str_enum(UserRole, "user_role"))
     is_active: Mapped[bool] = mapped_column(default=True, server_default=true())

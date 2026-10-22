@@ -10,13 +10,18 @@ from sqlalchemy import Engine, make_url, text
 from sqlalchemy.orm import Session
 
 from app.core.config import DatabaseSettings, Settings, get_database_settings
+from app.core.security import create_access_token
 from app.db.base import Base
 from app.db.session import create_db_engine
 from app.main import create_app
+from app.models import User
+from tests.integration.factories import create_user
 
 # Defaults match docker-compose.yml; override with env vars to target other infrastructure.
 DEFAULT_TEST_DATABASE_URL = "postgresql+psycopg://revintel:revintel@localhost:5432/revintel_test"
 DEFAULT_TEST_REDIS_URL = "redis://localhost:6379/15"
+# Test-only signing key (>= 32 characters).
+TEST_JWT_SECRET = "integration-test-jwt-secret-0123456789"
 
 ALEMBIC_INI = Path(__file__).resolve().parents[3] / "alembic.ini"
 
@@ -43,6 +48,7 @@ def integration_settings() -> Settings:
         environment="test",
         database_url=get_test_database_url(),
         redis_url=os.environ.get("TEST_REDIS_URL", DEFAULT_TEST_REDIS_URL),
+        jwt_secret=TEST_JWT_SECRET,
     )
 
 
@@ -94,9 +100,37 @@ def db_session(db_engine: Engine, clean_tables: None) -> Iterator[Session]:
         yield session
 
 
+AUTH_USER_PASSWORD = "integration user password"
+
+
+@pytest.fixture
+def auth_user(db_engine: Engine, clean_tables: None) -> User:
+    """An active user that `api_client` is authenticated as (removed by clean_tables)."""
+    with Session(db_engine, expire_on_commit=False) as session:
+        return create_user(session, email="api-user@example.com", password=AUTH_USER_PASSWORD)
+
+
+def bearer_headers(user: User, settings: Settings) -> dict[str, str]:
+    token = create_access_token(
+        user.id, secret=settings.jwt_secret, expires_minutes=settings.access_token_expire_minutes
+    )
+    return {"Authorization": f"Bearer {token.token}"}
+
+
 @pytest.fixture
 def api_client(
+    integration_settings: Settings, migrated_database: str, auth_user: User
+) -> Iterator[TestClient]:
+    """Client authenticated as `auth_user` (protected CRM mutations need a token)."""
+    headers = bearer_headers(auth_user, integration_settings)
+    with TestClient(create_app(integration_settings), headers=headers) as client:
+        yield client
+
+
+@pytest.fixture
+def anon_client(
     integration_settings: Settings, migrated_database: str, clean_tables: None
 ) -> Iterator[TestClient]:
+    """Client without credentials."""
     with TestClient(create_app(integration_settings)) as client:
         yield client

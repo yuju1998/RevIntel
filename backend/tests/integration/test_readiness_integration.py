@@ -3,6 +3,7 @@ from fastapi.testclient import TestClient
 
 from app.core.config import Settings
 from app.main import create_app
+from tests.integration.conftest import TEST_JWT_SECRET
 
 pytestmark = pytest.mark.integration
 
@@ -21,6 +22,7 @@ def test_ready_returns_503_when_postgres_is_unreachable(integration_settings: Se
     settings = Settings(
         _env_file=None,
         environment="test",
+        jwt_secret=TEST_JWT_SECRET,
         database_url=f"postgresql+psycopg://revintel:revintel@127.0.0.1:{CLOSED_PORT}/revintel",
         redis_url=str(integration_settings.redis_url),
     )
@@ -38,6 +40,7 @@ def test_ready_returns_503_when_redis_is_unreachable(integration_settings: Setti
     settings = Settings(
         _env_file=None,
         environment="test",
+        jwt_secret=TEST_JWT_SECRET,
         database_url=str(integration_settings.database_url),
         redis_url=f"redis://127.0.0.1:{CLOSED_PORT}/0",
     )

@@ -9,8 +9,13 @@ import pytest
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.core.exceptions import BusinessRuleError, NotFoundError, RelatedResourceNotFoundError
-from app.models import Account, Activity, Lead, Note, Opportunity, User
+from app.core.exceptions import (
+    AuthenticationError,
+    BusinessRuleError,
+    NotFoundError,
+    RelatedResourceNotFoundError,
+)
+from app.models import Account, Activity, Lead, Note, Opportunity
 from app.repositories.account import AccountRepository
 from app.repositories.activity import ActivityRepository
 from app.repositories.contact import ContactRepository
@@ -18,7 +23,6 @@ from app.repositories.lead import LeadRepository
 from app.repositories.note import NoteRepository
 from app.repositories.opportunity import OpportunityRepository
 from app.repositories.timeline import TimelineRepository
-from app.repositories.user import UserRepository
 from app.schemas.activity import ActivityCreate
 from app.schemas.note import NoteCreate
 from app.services.activity_service import ActivityService
@@ -28,6 +32,8 @@ from app.services.timeline_service import TimelineService
 
 ACCOUNT = uuid.uuid4()
 OPPORTUNITY = uuid.uuid4()
+# The authenticated user, as passed in by the route.
+CURRENT_USER_ID = uuid.uuid4()
 
 
 def _repo(cls: type) -> MagicMock:
@@ -58,27 +64,20 @@ def crm() -> CrmRepositories:
 
 
 @pytest.fixture
-def users() -> MagicMock:
-    repo = _repo(UserRepository)
-    repo.get.return_value = User(is_active=True)
-    return repo
-
-
-@pytest.fixture
 def activities() -> MagicMock:
     return _repo(ActivityRepository)
 
 
 @pytest.fixture
 def activity_service(
-    session: MagicMock, activities: MagicMock, crm: CrmRepositories, users: MagicMock
+    session: MagicMock, activities: MagicMock, crm: CrmRepositories
 ) -> ActivityService:
-    return ActivityService(session, activities, crm, users)
+    return ActivityService(session, activities, crm)
 
 
 @pytest.fixture
-def note_service(session: MagicMock, crm: CrmRepositories, users: MagicMock) -> NoteService:
-    return NoteService(session, _repo(NoteRepository), crm, users)
+def note_service(session: MagicMock, crm: CrmRepositories) -> NoteService:
+    return NoteService(session, _repo(NoteRepository), crm)
 
 
 def _activity_create(**fields: object) -> ActivityCreate:
@@ -90,10 +89,14 @@ def _activity_create(**fields: object) -> ActivityCreate:
     return ActivityCreate(**{**values, **fields})
 
 
+def _create_activity(service: ActivityService, data: ActivityCreate) -> Activity:
+    return service.create_activity(data, created_by_id=CURRENT_USER_ID)
+
+
 def test_create_activity_stores_derived_account_and_commits_once(
     activity_service: ActivityService, activities: MagicMock, session: MagicMock
 ) -> None:
-    activity = activity_service.create_activity(_activity_create(opportunity_id=OPPORTUNITY))
+    activity = _create_activity(activity_service, _activity_create(opportunity_id=OPPORTUNITY))
 
     assert isinstance(activity, Activity)
     assert activity.account_id == ACCOUNT
@@ -105,42 +108,24 @@ def test_create_activity_stores_derived_account_and_commits_once(
 def test_create_lead_only_activity_keeps_account_null(
     activity_service: ActivityService,
 ) -> None:
-    activity = activity_service.create_activity(_activity_create(lead_id=uuid.uuid4()))
+    activity = _create_activity(activity_service, _activity_create(lead_id=uuid.uuid4()))
 
     assert activity.account_id is None
 
 
-@pytest.mark.parametrize(
-    ("user", "error", "message"),
-    [
-        (None, RelatedResourceNotFoundError, "created_by_id does not refer to an existing user"),
-        (User(is_active=False), BusinessRuleError, "created_by_id refers to an inactive user"),
-    ],
-)
-def test_activity_creator_must_exist_and_be_active(
-    activity_service: ActivityService,
-    users: MagicMock,
-    session: MagicMock,
-    user: User | None,
-    error: type[Exception],
-    message: str,
-) -> None:
-    users.get.return_value = user
+def test_created_by_id_is_the_authenticated_user(activity_service: ActivityService) -> None:
+    activity = _create_activity(activity_service, _activity_create(account_id=ACCOUNT))
 
-    with pytest.raises(error, match=message):
-        activity_service.create_activity(
-            _activity_create(account_id=ACCOUNT, created_by_id=uuid.uuid4())
-        )
-    session.commit.assert_not_called()
-    session.rollback.assert_called_once()
+    assert activity.created_by_id == CURRENT_USER_ID
 
 
 def test_activity_cross_account_conflict_writes_nothing(
     activity_service: ActivityService, activities: MagicMock, session: MagicMock
 ) -> None:
     with pytest.raises(BusinessRuleError, match="different accounts"):
-        activity_service.create_activity(
-            _activity_create(account_id=uuid.uuid4(), opportunity_id=OPPORTUNITY)
+        _create_activity(
+            activity_service,
+            _activity_create(account_id=uuid.uuid4(), opportunity_id=OPPORTUNITY),
         )
     activities.add.assert_not_called()
     session.commit.assert_not_called()
@@ -156,7 +141,8 @@ def _integrity_error(constraint: str) -> IntegrityError:
     ("constraint", "error"),
     [
         ("fk_activities_opportunity_id_opportunities", RelatedResourceNotFoundError),
-        ("fk_activities_created_by_id_users", RelatedResourceNotFoundError),
+        # The authenticated user was deleted mid-request.
+        ("fk_activities_created_by_id_users", AuthenticationError),
         ("ck_activities_at_least_one_parent", BusinessRuleError),
     ],
 )
@@ -166,7 +152,7 @@ def test_known_activity_constraint_violations_become_domain_errors(
     session.commit.side_effect = _integrity_error(constraint)
 
     with pytest.raises(error):
-        activity_service.create_activity(_activity_create(opportunity_id=OPPORTUNITY))
+        _create_activity(activity_service, _activity_create(opportunity_id=OPPORTUNITY))
 
 
 def test_unknown_integrity_errors_are_reraised(
@@ -175,7 +161,7 @@ def test_unknown_integrity_errors_are_reraised(
     session.commit.side_effect = _integrity_error("ck_activities_activity_type")
 
     with pytest.raises(IntegrityError):
-        activity_service.create_activity(_activity_create(account_id=ACCOUNT))
+        _create_activity(activity_service, _activity_create(account_id=ACCOUNT))
     session.rollback.assert_called_once()
 
 
@@ -204,25 +190,27 @@ def test_list_lead_activities_paginates(
 
 
 def test_create_note_derives_account_from_opportunity(note_service: NoteService) -> None:
-    note = note_service.create_note(NoteCreate(opportunity_id=OPPORTUNITY, body="Hi"))
+    note = note_service.create_note(
+        NoteCreate(opportunity_id=OPPORTUNITY, body="Hi"), author_id=CURRENT_USER_ID
+    )
 
     assert isinstance(note, Note)
     assert note.account_id == ACCOUNT
 
 
-def test_create_note_rejects_inactive_author(note_service: NoteService, users: MagicMock) -> None:
-    users.get.return_value = User(is_active=False)
+def test_author_id_is_the_authenticated_user(note_service: NoteService) -> None:
+    note = note_service.create_note(
+        NoteCreate(account_id=ACCOUNT, body="Hi"), author_id=CURRENT_USER_ID
+    )
 
-    with pytest.raises(BusinessRuleError, match="author_id refers to an inactive user"):
-        note_service.create_note(
-            NoteCreate(account_id=ACCOUNT, author_id=uuid.uuid4(), body="Hi")
-        )
+    assert note.author_id == CURRENT_USER_ID
 
 
 def test_create_note_rejects_conflicting_accounts(note_service: NoteService) -> None:
     with pytest.raises(BusinessRuleError, match="account_id, opportunity_id"):
         note_service.create_note(
-            NoteCreate(account_id=uuid.uuid4(), opportunity_id=OPPORTUNITY, body="Hi")
+            NoteCreate(account_id=uuid.uuid4(), opportunity_id=OPPORTUNITY, body="Hi"),
+            author_id=CURRENT_USER_ID,
         )
 
 

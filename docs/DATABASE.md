@@ -222,7 +222,7 @@ Application users. Defined now; authentication is implemented later.
 |---|---|---|---|---|
 | `id` | `UUID` | no | app `uuid4` | PK |
 | `email` | `VARCHAR(320)` | no | — | Unique. Canonical lowercase, normalized by the service layer. |
-| `password_hash` | `VARCHAR(255)` | no | — | Hash only (argon2 via pwdlib). Never log or return. |
+| `password_hash` | `VARCHAR(255)` | no | — | Argon2id hash via pwdlib (97 characters). Never log or return. Deferred in the ORM: loaded only when login verifies a password. |
 | `full_name` | `VARCHAR(255)` | no | — | |
 | `role` | `VARCHAR(32)` enum `user_role` | no | — | `ADMIN`, `SALES_REP` |
 | `is_active` | `BOOLEAN` | no | `true` | Deactivate instead of delete. |
@@ -619,8 +619,10 @@ Not indexed on purpose: `contacts.email`, `leads.email`, `accounts.name`, `embed
 Rules the database does not (or cannot) enforce. Services must implement them, with tests,
 when the corresponding phase is built.
 
-1. **User email normalization** (Phase 1, user creation/authentication): lowercase
-   `users.email` before every insert/update and lowercase the input before every lookup.
+1. **User email normalization** (user creation/authentication): trim and lowercase
+   `users.email` before every insert and lowercase the input before every lookup
+   (`app.core.emails.normalize_user_email`, used by `UserService` and login). No database
+   CHECK; the plain `UNIQUE (email)` stays.
 2. **Lead conversion** (Phase 1): when setting `status = CONVERTED`, set `converted_at`;
    `converted_at >= created_at`.
 3. **Cross-account consistency for activities and notes** (Phase 2). A SQL CHECK cannot
@@ -638,9 +640,9 @@ when the corresponding phase is built.
      NULL only for lead-only records, and account timelines and RAG can filter on
      `account_id` alone. `lead_id` never implies an account.
    - Implemented in `backend/app/services/crm_references.py`.
-4. **Activity and note authors** (Phase 2): `activities.created_by_id` and
-   `notes.author_id` are optional; if given they must refer to an existing, **active**
-   user. No current-user inference until authentication exists.
+4. **Activity and note authors**: `activities.created_by_id` and `notes.author_id` are
+   set to the authenticated user by the API and are never taken from request input. The
+   columns stay nullable (`ON DELETE SET NULL`) so records survive user deletion.
 5. **`activities.occurred_at`** (Phase 2) is when the activity actually happened: it must
    be timezone-aware and not more than 5 minutes in the future (clock-skew allowance).
 6. **Document chunk maintenance** (Phase 4): rebuild or delete a source's chunks when the

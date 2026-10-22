@@ -10,9 +10,11 @@ from fastapi import FastAPI, Request, status
 from fastapi.responses import JSONResponse
 
 from app.core.exceptions import (
+    AuthenticationError,
     BusinessRuleError,
     DomainError,
     NotFoundError,
+    PermissionDeniedError,
     RelatedResourceNotFoundError,
 )
 
@@ -20,6 +22,8 @@ STATUS_BY_ERROR: dict[type[DomainError], int] = {
     NotFoundError: status.HTTP_404_NOT_FOUND,
     RelatedResourceNotFoundError: status.HTTP_422_UNPROCESSABLE_CONTENT,
     BusinessRuleError: status.HTTP_422_UNPROCESSABLE_CONTENT,
+    AuthenticationError: status.HTTP_401_UNAUTHORIZED,
+    PermissionDeniedError: status.HTTP_403_FORBIDDEN,
 }
 
 
@@ -31,6 +35,12 @@ def register_exception_handlers(app: FastAPI) -> None:
 def _handler_for(status_code: int) -> Callable[[Request, Exception], Awaitable[JSONResponse]]:
     async def handle(request: Request, exc: Exception) -> JSONResponse:
         message = exc.message if isinstance(exc, DomainError) else "Request failed"
-        return JSONResponse(status_code=status_code, content={"detail": message})
+        # RFC 6750: a 401 tells the client which authentication scheme to use.
+        headers = (
+            {"WWW-Authenticate": "Bearer"}
+            if status_code == status.HTTP_401_UNAUTHORIZED
+            else None
+        )
+        return JSONResponse(status_code=status_code, content={"detail": message}, headers=headers)
 
     return handle

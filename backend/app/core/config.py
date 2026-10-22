@@ -3,7 +3,7 @@
 from functools import lru_cache
 from typing import Literal
 
-from pydantic import Field, PostgresDsn, RedisDsn, field_validator
+from pydantic import Field, PostgresDsn, RedisDsn, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # Name the driver explicitly instead of relying on SQLAlchemy's default for `postgresql://`.
@@ -47,6 +47,11 @@ class Settings(DatabaseSettings):
     redis_url: RedisDsn
     redis_socket_timeout_seconds: float = Field(default=2.0, gt=0)
 
+    # Required; never logged or shown (SecretStr). HS256 is fixed for V1.
+    jwt_secret: SecretStr = Field(min_length=32)
+    jwt_algorithm: Literal["HS256"] = "HS256"
+    access_token_expire_minutes: int = Field(default=60, ge=1, le=1440)
+
 
 @lru_cache
 def get_database_settings() -> DatabaseSettings:
@@ -56,5 +61,5 @@ def get_database_settings() -> DatabaseSettings:
 
 @lru_cache
 def get_settings() -> Settings:
-    # Required fields (DATABASE_URL, REDIS_URL) come from the environment or `.env`.
+    # Required fields (DATABASE_URL, REDIS_URL, JWT_SECRET) come from the environment or `.env`.
     return Settings()  # type: ignore[call-arg]

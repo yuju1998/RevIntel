@@ -21,7 +21,7 @@ class ActivityCreate(RequestModel):
     lead_id: uuid.UUID | None = None
     opportunity_id: uuid.UUID | None = None
     contact_id: uuid.UUID | None = None
-    created_by_id: uuid.UUID | None = None
+    # created_by_id is not accepted: it is always the authenticated user.
     activity_type: ActivityType
     direction: ActivityDirection
     subject: Text255 | None = None
