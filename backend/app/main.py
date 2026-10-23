@@ -27,14 +27,20 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         )
         engine = create_db_engine(resolved_settings)
         redis_client = create_redis_client(resolved_settings)
+        # Separate short-timeout client for the cache; /ready keeps the default client.
+        cache_redis_client = create_redis_client(
+            resolved_settings, timeout_seconds=resolved_settings.cache_redis_timeout_seconds
+        )
 
         app.state.settings = resolved_settings
         app.state.engine = engine
         app.state.session_factory = create_session_factory(engine)
         app.state.redis = redis_client
+        app.state.cache_redis = cache_redis_client
         try:
             yield
         finally:
+            cache_redis_client.close()
             redis_client.close()
             engine.dispose()
 

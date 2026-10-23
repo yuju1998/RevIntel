@@ -48,6 +48,11 @@ class Settings(DatabaseSettings):
 
     redis_url: RedisDsn
     redis_socket_timeout_seconds: float = Field(default=2.0, gt=0)
+    # The cache uses its own client with a short timeout: a slow Redis must not stall
+    # requests (worst case one read + one write timeout before PostgreSQL answers).
+    cache_redis_timeout_seconds: float = Field(default=0.2, gt=0, le=5)
+    # GET /accounts/{id} cache lifetime; 0 disables caching.
+    account_cache_ttl_seconds: int = Field(default=300, ge=0, le=86400)
 
     # Required; never logged or shown (SecretStr). HS256 is fixed for V1.
     jwt_secret: SecretStr = Field(min_length=32)

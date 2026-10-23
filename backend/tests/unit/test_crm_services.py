@@ -9,6 +9,7 @@ import pytest
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from app.core.cache import NullCache
 from app.core.exceptions import BusinessRuleError, NotFoundError, RelatedResourceNotFoundError
 from app.models import Account, Contact, Lead, Opportunity, User
 from app.models.enums import LeadSource, LeadStatus, OpportunityStage
@@ -21,10 +22,14 @@ from app.schemas.account import AccountCreate
 from app.schemas.contact import ContactCreate
 from app.schemas.lead import LeadCreate
 from app.schemas.opportunity import OpportunityCreate, OpportunityUpdate
+from app.services.account_cache import AccountCache
 from app.services.account_service import AccountService
 from app.services.contact_service import ContactService
 from app.services.lead_service import LeadService
 from app.services.opportunity_service import OpportunityService
+
+# Caching is covered in test_account_cache.py; these tests exercise PostgreSQL paths.
+NO_CACHE = AccountCache(NullCache(), ttl_seconds=0)
 
 
 def _repo(cls: type) -> MagicMock:
@@ -63,7 +68,7 @@ def test_owner_must_exist_and_be_active(
     session: MagicMock, users: MagicMock, owner: User | None, error: type[Exception]
 ) -> None:
     users.get.return_value = owner
-    service = AccountService(session, _repo(AccountRepository), users)
+    service = AccountService(session, _repo(AccountRepository), users, cache=NO_CACHE)
 
     with pytest.raises(error):
         service.create_account(AccountCreate(name="Acme", owner_id=uuid.uuid4()))
@@ -73,7 +78,7 @@ def test_owner_must_exist_and_be_active(
 
 
 def test_owner_is_optional(session: MagicMock, users: MagicMock) -> None:
-    service = AccountService(session, _repo(AccountRepository), users)
+    service = AccountService(session, _repo(AccountRepository), users, cache=NO_CACHE)
 
     service.create_account(AccountCreate(name="Acme"))
 
@@ -88,7 +93,7 @@ def test_create_account_persists_fields_and_commits_once(
     session: MagicMock, users: MagicMock
 ) -> None:
     accounts = _repo(AccountRepository)
-    service = AccountService(session, accounts, users)
+    service = AccountService(session, accounts, users, cache=NO_CACHE)
     owner_id = uuid.uuid4()
 
     account = service.create_account(
@@ -107,7 +112,7 @@ def test_get_unknown_account_raises_not_found(session: MagicMock, users: MagicMo
     accounts.get.return_value = None
 
     with pytest.raises(NotFoundError):
-        AccountService(session, accounts, users).get_account(uuid.uuid4())
+        AccountService(session, accounts, users, cache=NO_CACHE).get_account(uuid.uuid4())
 
 
 def test_list_accounts_passes_filters_and_counts_matches(
@@ -117,7 +122,7 @@ def test_list_accounts_passes_filters_and_counts_matches(
     accounts.find.return_value = [Account(name="A")]
     accounts.count.return_value = 7
 
-    page = AccountService(session, accounts, users).list_accounts(
+    page = AccountService(session, accounts, users, cache=NO_CACHE).list_accounts(
         industry="Software", limit=1, offset=3
     )
 
@@ -133,7 +138,7 @@ def test_foreign_key_race_maps_to_related_resource_error(
     orig = Exception("fk")
     orig.diag = SimpleNamespace(constraint_name="fk_accounts_owner_id_users")  # type: ignore[attr-defined]
     session.commit.side_effect = IntegrityError("INSERT", {}, orig)
-    service = AccountService(session, _repo(AccountRepository), users)
+    service = AccountService(session, _repo(AccountRepository), users, cache=NO_CACHE)
 
     with pytest.raises(RelatedResourceNotFoundError):
         service.create_account(AccountCreate(name="Acme", owner_id=uuid.uuid4()))

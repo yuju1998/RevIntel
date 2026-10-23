@@ -15,7 +15,7 @@
 - [x] Note
 - [x] Authentication
 - [x] Structured logging and request IDs
-- [ ] Redis
+- [x] Redis (account read cache)
 - [ ] Tests
 
 ## Phase 2 — Data + ML

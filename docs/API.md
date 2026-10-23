@@ -37,7 +37,9 @@ The API needs every required variable below. Alembic only needs `DATABASE_URL` a
 | `DB_POOL_TIMEOUT_SECONDS` | no | `10` | Max wait for a pooled connection. |
 | `DB_CONNECT_TIMEOUT_SECONDS` | no | `3` | libpq connect timeout (integer seconds). |
 | `REDIS_URL` | yes | — | `redis://` or `rediss://`. |
-| `REDIS_SOCKET_TIMEOUT_SECONDS` | no | `2` | Applies to connect and to commands. |
+| `REDIS_SOCKET_TIMEOUT_SECONDS` | no | `2` | Applies to connect and to commands (readiness client). |
+| `CACHE_REDIS_TIMEOUT_SECONDS` | no | `0.2` | Socket timeout of the separate cache client (0 < x ≤ 5), so a slow Redis cannot stall requests. |
+| `ACCOUNT_CACHE_TTL_SECONDS` | no | `300` | Lifetime of cached `GET /accounts/{id}` responses (0–86400). `0` disables caching. |
 | `JWT_SECRET` | yes | — | Signing key for access tokens; at least 32 characters. Never commit or log it. |
 | `JWT_ALGORITHM` | no | `HS256` | Fixed to `HS256` in V1; any other value is rejected. |
 | `ACCESS_TOKEN_EXPIRE_MINUTES` | no | `60` | 1–1440. |
@@ -295,6 +297,23 @@ Paginated list of accounts. Optional filter: `industry`.
 #### `GET /api/v1/accounts/{account_id}` → `200`
 
 `404` if the account does not exist; `422` for a malformed UUID.
+
+**Caching.** Responses are cached in Redis (cache-aside) for `ACCOUNT_CACHE_TTL_SECONDS`
+(default 5 minutes). The response is identical whether it comes from the cache or from
+PostgreSQL.
+
+- Key: `revintel:v1:account:{account_id}`; value: the `AccountRead` JSON shown above
+  (never ORM objects or pickled data). `v1` is bumped if the response shape changes.
+- `404`s are never cached.
+- Redis is an optimization only: if Redis is slow, down or returns a corrupt entry, the
+  account is read from PostgreSQL and the request succeeds. Failures are logged as
+  `cache_unavailable` / `cache_entry_invalid` warnings (exception type only).
+- There is no account update/delete API yet, so nothing invalidates entries through the
+  API. Changes made directly in the database (e.g. a deleted owner being set to `null`)
+  can be served stale for up to the TTL. Future account mutations must call
+  `AccountCache.invalidate()` after their transaction commits.
+- `/ready` still reports Redis: if Redis is down it returns `503` even though this endpoint
+  keeps working. Choose the load balancer health-check target accordingly.
 
 ### Contacts
 
