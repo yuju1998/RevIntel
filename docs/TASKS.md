@@ -14,6 +14,7 @@
 - [x] Activity
 - [x] Note
 - [x] Authentication
+- [x] Structured logging and request IDs
 - [ ] Redis
 - [ ] Tests
 

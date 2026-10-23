@@ -42,7 +42,9 @@ class Settings(DatabaseSettings):
     """Full configuration for the FastAPI application."""
 
     app_name: str = "RevIntel"
+    # "local" logs human-readable lines; every other environment logs JSON.
     environment: Literal["local", "test", "staging", "production"] = "local"
+    log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "INFO"
 
     redis_url: RedisDsn
     redis_socket_timeout_seconds: float = Field(default=2.0, gt=0)

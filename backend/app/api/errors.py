@@ -1,7 +1,7 @@
 """HTTP mapping for known domain errors.
 
-Deliberately narrow: only the domain errors below are handled. Generic 500 handling,
-structured logging and request IDs belong to a later platform task.
+Deliberately narrow: only the domain errors below are handled here. Unhandled exceptions
+become a generic 500 in app.api.middleware.RequestContextMiddleware.
 """
 
 from collections.abc import Awaitable, Callable
