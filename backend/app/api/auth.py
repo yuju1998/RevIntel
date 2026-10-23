@@ -35,13 +35,17 @@ AuthServiceDep = Annotated[AuthService, Depends(get_auth_service)]
 
 
 def get_current_user(
+    request: Request,
     service: AuthServiceDep,
     credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(bearer_scheme)],
 ) -> User:
     """The authenticated, active user; 401 otherwise. Reloaded from the DB on every request."""
     if credentials is None:
         raise invalid_token()
-    return service.user_for_token(credentials.credentials)
+    user = service.user_for_token(credentials.credentials)
+    # For the access log (request.state is shared with the request middleware).
+    request.state.user_id = str(user.id)
+    return user
 
 
 CurrentUserDep = Annotated[User, Depends(get_current_user)]

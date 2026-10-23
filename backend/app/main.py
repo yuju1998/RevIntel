@@ -10,8 +10,10 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 from app.api.errors import register_exception_handlers
+from app.api.middleware import RequestContextMiddleware
 from app.api.router import api_router
 from app.core.config import Settings, get_settings
+from app.core.logging import configure_logging
 from app.core.redis import create_redis_client
 from app.db.session import create_db_engine, create_session_factory
 
@@ -20,6 +22,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         resolved_settings = settings if settings is not None else get_settings()
+        configure_logging(
+            environment=resolved_settings.environment, log_level=resolved_settings.log_level
+        )
         engine = create_db_engine(resolved_settings)
         redis_client = create_redis_client(resolved_settings)
 
@@ -35,6 +40,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     app = FastAPI(title="RevIntel API", version="0.1.0", lifespan=lifespan)
     register_exception_handlers(app)
+    # Request IDs, access log and safe 500s (see app.api.middleware for its position).
+    app.add_middleware(RequestContextMiddleware)
     app.include_router(api_router)
     return app
 
