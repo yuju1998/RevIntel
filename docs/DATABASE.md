@@ -25,10 +25,11 @@ intentionally postponed work is in [Deferred / future considerations](#deferred-
 9. [RAG isolation rule](#rag-isolation-rule)
 10. [ML point-in-time rules](#ml-point-in-time-rules)
 11. [Synthetic CRM data](#synthetic-crm-data)
-12. [Implementation order](#implementation-order)
-13. [Design decisions (Q1–Q14)](#design-decisions-q1q14)
-14. [Deferred / future considerations](#deferred--future-considerations)
-15. [Tooling: layout, Alembic, commands](#layout)
+12. [Lead conversion features](#lead-conversion-features)
+13. [Implementation order](#implementation-order)
+14. [Design decisions (Q1–Q14)](#design-decisions-q1q14)
+15. [Deferred / future considerations](#deferred--future-considerations)
+16. [Tooling: layout, Alembic, commands](#layout)
 
 ---
 
@@ -708,9 +709,9 @@ Rules:
 ## ML point-in-time rules
 
 Prediction definition: at timestamp `T` (`prediction_timestamp`), predict whether the lead
-converts during `T` through `T + 30 days`. The label comes from `leads.converted_at`.
+converts in `(T, T + 30 days]`. The label comes from `leads.converted_at`.
 
-Features may only use data available at or before `T`.
+Features may only use data that existed in the CRM at or before `T`.
 
 | Data | Rule |
 |---|---|
@@ -718,7 +719,8 @@ Features may only use data available at or before `T`.
 | `leads.converted_at` | **Never** a feature (label source only). |
 | `leads.owner_id` | Not a feature in V1. |
 | `leads.lead_source`, `industry`, `company_size`, `estimated_value` | Allowed in V1. The V1 synthetic generator keeps them unchanged after lead creation, so the current value equals the value at `T`. |
-| `activities` | Only rows with `occurred_at <= T`. |
+| `activities` | Only rows known at `T`: `created_at <= T AND occurred_at <= T`. Feature windows are then placed by `occurred_at`. |
+| `activities.created_at` | Availability only (was the row in the CRM at `T`?); **never** a feature value. |
 | `notes` | Only rows with `created_at <= T`. |
 | Any other event | Only if its timestamp is `<= T`. |
 | Any other mutable field | Only if its point-in-time value is guaranteed. |
@@ -809,20 +811,15 @@ assumption**, and is recorded in the manifest (`conventions.terminal_time`). All
 go through `ml/synthetic/conventions.py::lead_terminal_time(status, converted_at,
 updated_at)` so it can later be replaced by a real status-history source.
 
-### Deriving prediction times 
+### Observation-end convention (synthetic data only)
 
-Prediction timestamps are not stored; the training pipeline derives snapshots:
+The generator simulates each lead for at most `max_lead_age_days` (180) after
+`created_at`. A lead still open at that point is censored, not a negative: nothing after
+`created_at + max_lead_age_days` is observable. Code uses
+`ml/synthetic/conventions.py::lead_observation_end(created_at, max_lead_age_days)`.
 
-- `T` on a grid after `created_at` (for example every 7 days), only where
-  `T + 30 days <= as_of` (read `as_of` from the manifest), so the label window is fully
-  observed.
-- A snapshot is eligible only while the lead is active: `T < lead_terminal_time(...)`
-  for converted and disqualified leads; open leads are eligible through `as_of`. A
-  disqualified lead is never an open negative after its disqualification.
-- Label: `T < converted_at <= T + 30 days`.
-- Features follow [ML point-in-time rules](#ml-point-in-time-rules): static lead
-  attributes and activities with `occurred_at <= T`. Never `status`, `converted_at`,
-  `updated_at` or `owner_id`. Split by `T`.
+Prediction timestamps are not stored; the feature pipeline derives them (see
+[Lead conversion features](#lead-conversion-features)).
 
 ### Limitations
 
@@ -832,6 +829,91 @@ Prediction timestamps are not stored; the training pipeline derives snapshots:
 - Leads still open at `as_of` are right-censored; the simulation stops 180 days after
   creation.
 - Distributions are plausible, not fitted to real CRM data.
+
+---
+
+## Lead conversion features
+
+`scripts/build_lead_features.py` (logic in `ml/features/`) turns the synthetic CRM dataset
+into one row per lead snapshot in `data/processed/lead_features.parquet` (gitignored),
+plus `lead_features_summary.json`. It trains nothing and never writes to the database.
+
+```bash
+export SYNTHETIC_DATABASE_URL=postgresql+psycopg://revintel:revintel@localhost:5432/revintel_ml
+python scripts/build_lead_features.py [--manifest PATH] [--database-url URL] [--output PATH]
+```
+
+The source comes only from `--database-url` or `SYNTHETIC_DATABASE_URL` (name must end in
+`_ml` or `_test`; `DATABASE_URL` is ignored). Both reads run in one `REPEATABLE READ`,
+`READ ONLY` transaction. The build refuses a database whose lead, activity and
+lead-activity counts differ from the manifest, which also supplies `as_of`,
+`max_lead_age_days` and the `dataset_sha256` recorded in the output.
+
+### Modules
+
+| Module | Role |
+|---|---|
+| `feature_spec.py` | Single source of truth: feature definitions, windows, input categories, `compute_features()` (shared by offline and online), spec fingerprint. |
+| `sources.py` | Read-only SQL extraction shared by both paths. |
+| `snapshots.py` | Snapshot policy and label; the only reader of `status`, `converted_at`, `updated_at`. |
+| `build_features.py` | Offline build: manifest check, extraction, snapshots, features, validation, parquet. |
+| `validation.py` | Hard invariants (nothing is written on failure) and build statistics. |
+| `online_features.py` | Features for one lead at time `at` via the same SQL and `compute_features()`. |
+
+### Snapshot policy
+
+For each lead, `T = created_at + k × 7 days` (`k ≥ 1`). A snapshot exists only if:
+
+1. `T + 30d <= as_of` (the label window is fully observed);
+2. the lead is active at `T`: `T < converted_at` for converted leads,
+   `T < lead_terminal_time(...)` for disqualified leads, always for open leads. A
+   disqualified lead is never a negative after its disqualification;
+3. the outcome is observable: `T + 30d <= lead_observation_end(...)`, **or** a terminal
+   event already resolved it with `T < terminal_time <= T + 30d` and
+   `terminal_time <= lead_observation_end(...)`. Still-open leads whose window passes the
+   observation end are dropped (censored), not labelled negative.
+
+Label `converted_within_30d`: `converted_at` in `(T, T + 30d]`.
+
+### Features
+
+An activity is **known at T** when `created_at <= T AND occurred_at <= T`. Only known
+activities count; windows then use `occurred_at` and are left-exclusive,
+right-inclusive: 7d = `(T − 7d, T]`, 30d = `(T − 30d, T]`. A day is exactly 24 hours.
+
+| Feature | Definition | Type |
+|---|---|---|
+| `lead_source` | Lead source (fixed categories) | category |
+| `industry` | Lead industry | string, nullable |
+| `company_size` | Employees | Int64, nullable |
+| `estimated_value` | Exact decimal; cast to float inside the model pipeline | decimal(14,2), nullable |
+| `lead_age_days` | `(T − created_at)` in days | float64 |
+| `activity_count_7d`, `activity_count_30d` | Known activities in the window | int32 |
+| `email_count_30d` / `meeting_count_30d` | Known EMAIL / MEETING activities in 30d (DEMO is not a meeting) | int32 |
+| `inbound_response_count_30d` | Known INBOUND activities in 30d | int32 |
+| `active_days_30d` | Distinct UTC calendar dates with a known activity in 30d | int32 |
+| `days_since_last_activity` | Days since the latest known activity; NULL if none (imputed inside the model pipeline) | float64, nullable |
+
+**Never features:** `status`, `converted_at`, `updated_at` (snapshot/label control only),
+`owner_id`, and `activities.created_at` (availability only).
+
+**Deferred Notes feature:** `notes_count_30d` (notes with `created_at` in `(T − 30d, T]`) is
+defined in the spec but disabled, because the synthetic dataset currently contains no
+Notes. It is absent from the parquet and the model feature list; enabling it changes the
+spec fingerprint and requires a spec version bump.
+
+### Output
+
+Columns: `lead_id`, `prediction_timestamp`, the active features (spec order),
+`converted_within_30d`; rows sorted by `(prediction_timestamp, lead_id)`. The parquet
+schema metadata (`revintel.lead_features`) records the spec version and fingerprint,
+active and deferred features, window semantics, availability rule, snapshot policy,
+source `dataset_sha256`, `features_sha256` (content hash of the rows) and git commit.
+Reproducibility is judged by `features_sha256`, not by file bytes.
+
+Online scoring (`online_features.fetch_online_features(connection, lead_id, at)`) loads
+the lead and its activities known at `at` with the same queries and calls the same
+`compute_features()`, so a lead scored at `T` gets exactly its training-row features.
 
 ---
 

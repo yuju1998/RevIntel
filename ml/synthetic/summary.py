@@ -17,7 +17,11 @@ import numpy as np
 
 from app.models.enums import ActivityDirection, ActivityType, LeadStatus
 from ml.synthetic.config import GENERATOR_VERSION
-from ml.synthetic.conventions import TERMINAL_TIME_CONVENTION, lead_terminal_time
+from ml.synthetic.conventions import (
+    OBSERVATION_END_CONVENTION,
+    TERMINAL_TIME_CONVENTION,
+    lead_terminal_time,
+)
 from ml.synthetic.generator import SyntheticDataset
 
 EARLY_WINDOW = timedelta(days=14)
@@ -316,13 +320,9 @@ def build_manifest(
         "conventions": {
             "terminal_time": TERMINAL_TIME_CONVENTION,
             "terminal_time_function": "ml.synthetic.conventions.lead_terminal_time",
-            "prediction_time": (
-                "Not stored. Will derive snapshots T = created_at + 7d, 14d, ... while the "
-                "lead is active at T (T < terminal time) and T + 30d <= as_of. Label: "
-                "converted_at in (T, T + 30d]. Features use only data with timestamps <= T; "
-                "never status, converted_at, updated_at or owner_id."
-            ),
-            "not_generated": "notes, opportunities (do not build note-based features yet)",
+            "observation_end": OBSERVATION_END_CONVENTION,
+            "observation_end_function": "ml.synthetic.conventions.lead_observation_end",
+            "not_generated": "notes, opportunities",
         },
         "sanity": sanity,
         "stats": stats,
