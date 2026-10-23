@@ -45,7 +45,8 @@ def list_accounts(
     response_model=AccountRead,
     responses={404: {"description": "Account not found"}},
 )
-def get_account(account_id: uuid.UUID, service: AccountServiceDep) -> Account:
+def get_account(account_id: uuid.UUID, service: AccountServiceDep) -> AccountRead:
+    """Served from the Redis cache when possible (see docs/API.md)."""
     return service.get_account(account_id)
 
 

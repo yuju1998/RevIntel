@@ -46,22 +46,33 @@ def test_lifespan_stores_resources_on_app_state(settings: Settings) -> None:
         assert isinstance(application.state.engine, Engine)
         assert isinstance(application.state.session_factory, sessionmaker)
         assert isinstance(application.state.redis, Redis)
+        assert isinstance(application.state.cache_redis, Redis)
+        assert application.state.cache_redis is not application.state.redis
 
 
 def test_lifespan_releases_resources_on_shutdown(
     settings: Settings, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     engine = MagicMock(spec=Engine)
-    redis_client = MagicMock(spec=Redis)
+    redis_clients: list[MagicMock] = []
+
+    def fake_redis_client(*_: object, **__: object) -> MagicMock:
+        redis_clients.append(MagicMock(spec=Redis))
+        return redis_clients[-1]
+
     monkeypatch.setattr("app.main.create_db_engine", lambda _: engine)
-    monkeypatch.setattr("app.main.create_redis_client", lambda _: redis_client)
+    monkeypatch.setattr("app.main.create_redis_client", fake_redis_client)
 
     with TestClient(create_app(settings)):
         engine.dispose.assert_not_called()
-        redis_client.close.assert_not_called()
+        # Readiness client + short-timeout cache client.
+        assert len(redis_clients) == 2
+        for client in redis_clients:
+            client.close.assert_not_called()
 
     engine.dispose.assert_called_once()
-    redis_client.close.assert_called_once()
+    for client in redis_clients:
+        client.close.assert_called_once()
 
 
 def test_api_v1_prefix_is_reserved_for_business_endpoints(client: TestClient) -> None:

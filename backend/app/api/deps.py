@@ -8,6 +8,7 @@ from redis import Redis
 from sqlalchemy import Engine
 from sqlalchemy.orm import Session, sessionmaker
 
+from app.core.cache import Cache, NullCache, RedisCache
 from app.repositories.account import AccountRepository
 from app.repositories.activity import ActivityRepository
 from app.repositories.contact import ContactRepository
@@ -16,6 +17,7 @@ from app.repositories.note import NoteRepository
 from app.repositories.opportunity import OpportunityRepository
 from app.repositories.timeline import TimelineRepository
 from app.repositories.user import UserRepository
+from app.services.account_cache import AccountCache
 from app.services.account_service import AccountService
 from app.services.activity_service import ActivityService
 from app.services.contact_service import ContactService
@@ -56,8 +58,18 @@ RedisDep = Annotated[Redis, Depends(get_redis)]
 SessionDep = Annotated[Session, Depends(get_db)]
 
 
-def get_account_service(session: SessionDep) -> AccountService:
-    return AccountService(session, AccountRepository(session), UserRepository(session))
+def get_account_cache(request: Request) -> AccountCache:
+    ttl_seconds = request.app.state.settings.account_cache_ttl_seconds
+    cache: Cache = RedisCache(request.app.state.cache_redis) if ttl_seconds > 0 else NullCache()
+    return AccountCache(cache, ttl_seconds=ttl_seconds)
+
+
+def get_account_service(
+    session: SessionDep, cache: Annotated[AccountCache, Depends(get_account_cache)]
+) -> AccountService:
+    return AccountService(
+        session, AccountRepository(session), UserRepository(session), cache=cache
+    )
 
 
 def get_contact_service(session: SessionDep) -> ContactService:

@@ -6,6 +6,7 @@ import pytest
 from alembic import command
 from alembic.config import Config
 from fastapi.testclient import TestClient
+from redis import Redis
 from sqlalchemy import Engine, make_url, text
 from sqlalchemy.orm import Session
 
@@ -15,6 +16,7 @@ from app.db.base import Base
 from app.db.session import create_db_engine
 from app.main import create_app
 from app.models import User
+from app.services.account_cache import KEY_PREFIX as ACCOUNT_CACHE_PREFIX
 from tests.integration.factories import create_user
 
 # Defaults match docker-compose.yml; override with env vars to target other infrastructure.
@@ -41,13 +43,36 @@ def require_test_database(url: str) -> None:
         )
 
 
+def get_test_redis_url() -> str:
+    return os.environ.get("TEST_REDIS_URL", DEFAULT_TEST_REDIS_URL)
+
+
+def require_test_redis_database(client: Redis) -> None:
+    """Hard guard: never touch Redis database 0 (local development)."""
+    database = client.connection_pool.connection_kwargs.get("db", 0)
+    if int(database) == 0:
+        pytest.fail("Refusing to use Redis database 0 for tests; use e.g. /15.", pytrace=False)
+
+
+def delete_account_cache_keys() -> None:
+    """Prefix-scoped cache cleanup in the test Redis database; never FLUSHDB/FLUSHALL."""
+    client = Redis.from_url(get_test_redis_url())
+    try:
+        require_test_redis_database(client)
+        keys = list(client.scan_iter(match=f"{ACCOUNT_CACHE_PREFIX}*"))
+        if keys:
+            client.delete(*keys)
+    finally:
+        client.close()
+
+
 @pytest.fixture
 def integration_settings() -> Settings:
     return Settings(
         _env_file=None,
         environment="test",
         database_url=get_test_database_url(),
-        redis_url=os.environ.get("TEST_REDIS_URL", DEFAULT_TEST_REDIS_URL),
+        redis_url=get_test_redis_url(),
         jwt_secret=TEST_JWT_SECRET,
     )
 
@@ -86,12 +111,18 @@ def db_engine(migrated_database: str) -> Iterator[Engine]:
 
 @pytest.fixture
 def clean_tables(migrated_database: str, db_engine: Engine) -> Iterator[None]:
-    """Empty every model table after the test. alembic_version is left to Alembic."""
+    """Empty every model table (and the account cache) around the test.
+
+    alembic_version is left to Alembic. Cached accounts are removed too, so no entry
+    outlives its row.
+    """
+    delete_account_cache_keys()
     yield
     require_test_database(migrated_database)
     tables = ", ".join(table.name for table in Base.metadata.sorted_tables)
     with db_engine.begin() as connection:
         connection.execute(text(f"TRUNCATE {tables} CASCADE"))
+    delete_account_cache_keys()
 
 
 @pytest.fixture
