@@ -1,4 +1,7 @@
-"""Authentication and role dependencies for protected endpoints."""
+"""Authentication and role dependencies for protected endpoints.
+
+The AuthService provider lives with the other service providers in app.api.deps.
+"""
 
 from collections.abc import Callable
 from typing import Annotated
@@ -6,32 +9,16 @@ from typing import Annotated
 from fastapi import Depends, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
-from app.api.deps import SessionDep
-from app.core.config import Settings
+from app.api.deps import AuthServiceDep
 from app.core.exceptions import PermissionDeniedError
 from app.core.security import invalid_token
 from app.models.enums import UserRole
 from app.models.user import User
-from app.repositories.user import UserRepository
-from app.services.auth_service import AuthService
 
 # auto_error=False so a missing/non-Bearer header goes through our own 401 response.
 bearer_scheme = HTTPBearer(
     auto_error=False, description="Access token from POST /api/v1/auth/login"
 )
-
-
-def get_auth_service(request: Request, session: SessionDep) -> AuthService:
-    settings: Settings = request.app.state.settings
-    return AuthService(
-        session,
-        UserRepository(session),
-        jwt_secret=settings.jwt_secret,
-        access_token_expire_minutes=settings.access_token_expire_minutes,
-    )
-
-
-AuthServiceDep = Annotated[AuthService, Depends(get_auth_service)]
 
 
 def get_current_user(

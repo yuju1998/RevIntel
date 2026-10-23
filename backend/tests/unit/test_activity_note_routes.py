@@ -1,4 +1,4 @@
-"""Phase 2 routes with services overridden: status codes, timeline mapping, errors."""
+"""Activity, note, timeline and lead-activity routes with services overridden."""
 
 import uuid
 from collections.abc import Iterator
@@ -13,24 +13,19 @@ from app.api.deps import get_activity_service, get_note_service, get_timeline_se
 from app.core.config import Settings
 from app.core.exceptions import BusinessRuleError, NotFoundError, RelatedResourceNotFoundError
 from app.main import create_app
-from app.models import Activity, Note, User
-from app.models.enums import ActivityDirection, ActivityType, UserRole
+from app.models import Activity, Note
+from app.models.enums import ActivityDirection, ActivityType
 from app.schemas.timeline import timeline_item
 from app.services.activity_service import ActivityService
 from app.services.note_service import NoteService
 from app.services.pagination import PageResult
 from app.services.timeline_service import TimelineService
+from tests.unit.helpers import make_user
 
 OCCURRED = datetime(2026, 10, 20, 15, 0, tzinfo=UTC)
 RECORDED = datetime(2026, 10, 21, 9, 0, tzinfo=UTC)
 
-AUTH_USER = User(
-    id=uuid.uuid4(),
-    email="rep@example.com",
-    full_name="Sales Rep",
-    role=UserRole.SALES_REP,
-    is_active=True,
-)
+AUTH_USER = make_user()
 
 
 def _activity() -> Activity:

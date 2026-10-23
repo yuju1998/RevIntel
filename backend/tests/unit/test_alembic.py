@@ -9,7 +9,7 @@ from alembic.script import ScriptDirectory
 from pydantic import ValidationError
 
 from app.core.config import get_database_settings, get_settings
-from tests.unit.conftest import UNREACHABLE_DATABASE_URL
+from tests.unit.helpers import UNREACHABLE_DATABASE_URL
 
 ALEMBIC_INI = Path(__file__).resolve().parents[3] / "alembic.ini"
 

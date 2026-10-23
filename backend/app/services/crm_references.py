@@ -7,7 +7,7 @@ checked for existence only and never implies an account.
 """
 
 import uuid
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from functools import partial
 
@@ -73,3 +73,12 @@ def not_found(field: str, entity: str) -> RelatedResourceNotFoundError:
 def not_found_for(field: str, entity: str) -> Callable[[], RelatedResourceNotFoundError]:
     """Error factory for a foreign-key violation, for `write_transaction` mappings."""
     return partial(not_found, field, entity)
+
+
+def parent_required(fields: Sequence[str]) -> BusinessRuleError:
+    return BusinessRuleError(f"at least one of {', '.join(fields)} is required")
+
+
+def parent_required_for(fields: Sequence[str]) -> Callable[[], BusinessRuleError]:
+    """Error factory for an at-least-one-parent CHECK, for `write_transaction` mappings."""
+    return partial(parent_required, tuple(fields))

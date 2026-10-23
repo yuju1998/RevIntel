@@ -19,6 +19,7 @@ from app.repositories.user import UserRepository
 from app.schemas.account import AccountRead
 from app.services.account_cache import KEY_PREFIX, AccountCache
 from app.services.account_service import AccountService
+from tests.unit.helpers import json_log_records
 
 TTL = 300
 ACCOUNT_ID = uuid.uuid4()
@@ -91,7 +92,7 @@ def logs() -> io.StringIO:
 
 
 def _events(logs: io.StringIO) -> list[str]:
-    return [json.loads(line)["event"] for line in logs.getvalue().splitlines() if line.strip()]
+    return [record["event"] for record in json_log_records(logs)]
 
 
 # --- AccountCache -------------------------------------------------------------------------

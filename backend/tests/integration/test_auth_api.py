@@ -7,13 +7,14 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 from fastapi.testclient import TestClient
+from httpx2 import Response
 from sqlalchemy import func, select, text
 from sqlalchemy.orm import Session
 
 from app.cli import create_user as create_user_cli
 from app.core.config import Settings
 from app.core.exceptions import BusinessRuleError
-from app.core.security import verify_password
+from app.core.security import create_access_token, verify_password
 from app.models import Account, Activity, Contact, Lead, Note, Opportunity, User
 from app.repositories.user import UserRepository
 from app.schemas.user import UserCreate
@@ -27,7 +28,7 @@ LOGIN = "/api/v1/auth/login"
 ME = "/api/v1/users/me"
 
 
-def _login(client: TestClient, email: str, password: str):  # noqa: ANN202
+def _login(client: TestClient, email: str, password: str) -> Response:
     return client.post(LOGIN, json={"email": email, "password": password})
 
 
@@ -118,8 +119,6 @@ def test_role_change_takes_effect_without_a_new_token(
 def test_expired_token_is_rejected(
     anon_client: TestClient, auth_user: User, integration_settings: Settings
 ) -> None:
-    from app.core.security import create_access_token
-
     token = create_access_token(
         auth_user.id,
         secret=integration_settings.jwt_secret,

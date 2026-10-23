@@ -2,11 +2,9 @@
 
 import uuid
 from decimal import Decimal
-from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
-from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.cache import NullCache
@@ -27,15 +25,12 @@ from app.services.account_service import AccountService
 from app.services.contact_service import ContactService
 from app.services.lead_service import LeadService
 from app.services.opportunity_service import OpportunityService
+from tests.unit.helpers import integrity_error, mock_repo
 
 # Caching is covered in test_account_cache.py; these tests exercise PostgreSQL paths.
 NO_CACHE = AccountCache(NullCache(), ttl_seconds=0)
 
 
-def _repo(cls: type) -> MagicMock:
-    repo = MagicMock(spec=cls)
-    repo.add.side_effect = lambda obj: obj
-    return repo
 
 
 @pytest.fixture
@@ -45,14 +40,14 @@ def session() -> MagicMock:
 
 @pytest.fixture
 def users() -> MagicMock:
-    repo = _repo(UserRepository)
+    repo = mock_repo(UserRepository)
     repo.get.return_value = User(is_active=True)
     return repo
 
 
 @pytest.fixture
 def accounts() -> MagicMock:
-    repo = _repo(AccountRepository)
+    repo = mock_repo(AccountRepository)
     repo.get.return_value = Account(name="Acme")
     return repo
 
@@ -68,7 +63,7 @@ def test_owner_must_exist_and_be_active(
     session: MagicMock, users: MagicMock, owner: User | None, error: type[Exception]
 ) -> None:
     users.get.return_value = owner
-    service = AccountService(session, _repo(AccountRepository), users, cache=NO_CACHE)
+    service = AccountService(session, mock_repo(AccountRepository), users, cache=NO_CACHE)
 
     with pytest.raises(error):
         service.create_account(AccountCreate(name="Acme", owner_id=uuid.uuid4()))
@@ -78,7 +73,7 @@ def test_owner_must_exist_and_be_active(
 
 
 def test_owner_is_optional(session: MagicMock, users: MagicMock) -> None:
-    service = AccountService(session, _repo(AccountRepository), users, cache=NO_CACHE)
+    service = AccountService(session, mock_repo(AccountRepository), users, cache=NO_CACHE)
 
     service.create_account(AccountCreate(name="Acme"))
 
@@ -92,7 +87,7 @@ def test_owner_is_optional(session: MagicMock, users: MagicMock) -> None:
 def test_create_account_persists_fields_and_commits_once(
     session: MagicMock, users: MagicMock
 ) -> None:
-    accounts = _repo(AccountRepository)
+    accounts = mock_repo(AccountRepository)
     service = AccountService(session, accounts, users, cache=NO_CACHE)
     owner_id = uuid.uuid4()
 
@@ -108,7 +103,7 @@ def test_create_account_persists_fields_and_commits_once(
 
 
 def test_get_unknown_account_raises_not_found(session: MagicMock, users: MagicMock) -> None:
-    accounts = _repo(AccountRepository)
+    accounts = mock_repo(AccountRepository)
     accounts.get.return_value = None
 
     with pytest.raises(NotFoundError):
@@ -118,7 +113,7 @@ def test_get_unknown_account_raises_not_found(session: MagicMock, users: MagicMo
 def test_list_accounts_passes_filters_and_counts_matches(
     session: MagicMock, users: MagicMock
 ) -> None:
-    accounts = _repo(AccountRepository)
+    accounts = mock_repo(AccountRepository)
     accounts.find.return_value = [Account(name="A")]
     accounts.count.return_value = 7
 
@@ -135,10 +130,8 @@ def test_list_accounts_passes_filters_and_counts_matches(
 def test_foreign_key_race_maps_to_related_resource_error(
     session: MagicMock, users: MagicMock
 ) -> None:
-    orig = Exception("fk")
-    orig.diag = SimpleNamespace(constraint_name="fk_accounts_owner_id_users")  # type: ignore[attr-defined]
-    session.commit.side_effect = IntegrityError("INSERT", {}, orig)
-    service = AccountService(session, _repo(AccountRepository), users, cache=NO_CACHE)
+    session.commit.side_effect = integrity_error("fk_accounts_owner_id_users")
+    service = AccountService(session, mock_repo(AccountRepository), users, cache=NO_CACHE)
 
     with pytest.raises(RelatedResourceNotFoundError):
         service.create_account(AccountCreate(name="Acme", owner_id=uuid.uuid4()))
@@ -150,7 +143,7 @@ def test_foreign_key_race_maps_to_related_resource_error(
 
 def test_create_contact_requires_existing_account(session: MagicMock, accounts: MagicMock) -> None:
     accounts.get.return_value = None
-    contacts = _repo(ContactRepository)
+    contacts = mock_repo(ContactRepository)
 
     with pytest.raises(RelatedResourceNotFoundError, match="account_id"):
         ContactService(session, contacts, accounts).create_contact(
@@ -162,7 +155,7 @@ def test_create_contact_requires_existing_account(session: MagicMock, accounts: 
 
 
 def test_create_contact(session: MagicMock, accounts: MagicMock) -> None:
-    contact = ContactService(session, _repo(ContactRepository), accounts).create_contact(
+    contact = ContactService(session, mock_repo(ContactRepository), accounts).create_contact(
         ContactCreate(account_id=uuid.uuid4(), first_name="A", last_name="B")
     )
 
@@ -178,7 +171,7 @@ def _lead_create(**fields: object) -> LeadCreate:
 
 
 def test_create_lead_rejects_converted_status(session: MagicMock, users: MagicMock) -> None:
-    leads = _repo(LeadRepository)
+    leads = mock_repo(LeadRepository)
 
     with pytest.raises(BusinessRuleError, match="CONVERTED"):
         LeadService(session, leads, users).create_lead(_lead_create(status="CONVERTED"))
@@ -193,7 +186,7 @@ def test_create_lead_rejects_converted_status(session: MagicMock, users: MagicMo
 def test_create_lead_accepts_other_statuses(
     session: MagicMock, users: MagicMock, status: LeadStatus
 ) -> None:
-    lead = LeadService(session, _repo(LeadRepository), users).create_lead(
+    lead = LeadService(session, mock_repo(LeadRepository), users).create_lead(
         _lead_create(status=status)
     )
 
@@ -203,7 +196,7 @@ def test_create_lead_accepts_other_statuses(
 
 
 def test_list_leads_passes_filters(session: MagicMock, users: MagicMock) -> None:
-    leads = _repo(LeadRepository)
+    leads = mock_repo(LeadRepository)
     leads.find.return_value = []
     leads.count.return_value = 0
 
@@ -218,7 +211,7 @@ def test_list_leads_passes_filters(session: MagicMock, users: MagicMock) -> None
 
 
 def test_get_unknown_lead_raises_not_found(session: MagicMock, users: MagicMock) -> None:
-    leads = _repo(LeadRepository)
+    leads = mock_repo(LeadRepository)
     leads.get.return_value = None
 
     with pytest.raises(NotFoundError):
@@ -230,7 +223,7 @@ def test_get_unknown_lead_raises_not_found(session: MagicMock, users: MagicMock)
 
 @pytest.fixture
 def opportunities() -> MagicMock:
-    return _repo(OpportunityRepository)
+    return mock_repo(OpportunityRepository)
 
 
 @pytest.fixture

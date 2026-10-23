@@ -4,7 +4,7 @@ import pytest
 
 from app.core.config import DatabaseSettings
 from app.db import session as session_module
-from tests.unit.conftest import UNREACHABLE_DATABASE_URL
+from tests.unit.helpers import UNREACHABLE_DATABASE_URL
 
 
 def test_engine_pins_utc_and_keeps_connect_timeout(monkeypatch: pytest.MonkeyPatch) -> None:

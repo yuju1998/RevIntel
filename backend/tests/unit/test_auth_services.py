@@ -1,12 +1,10 @@
 """AuthService and UserService with fake repositories (no database)."""
 
 import uuid
-from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
 from pydantic import SecretStr
-from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.exceptions import AuthenticationError, BusinessRuleError
@@ -17,22 +15,18 @@ from app.repositories.user import UserRepository
 from app.schemas.user import UserCreate
 from app.services.auth_service import AuthService
 from app.services.user_service import UserService
+from tests.unit.helpers import integrity_error, make_user
 
 SECRET = SecretStr("unit-test-jwt-secret-0123456789abcdef")
 PASSWORD = "correct horse battery staple"
 PASSWORD_HASH = hash_password(PASSWORD)
 
 
-def _user(**fields: object) -> User:
-    values: dict[str, object] = {
-        "id": uuid.uuid4(),
-        "email": "ada@example.com",
-        "full_name": "Ada",
-        "role": UserRole.SALES_REP,
-        "is_active": True,
-        "password_hash": PASSWORD_HASH,
-    }
-    return User(**{**values, **fields})
+def _user(*, is_active: bool = True, password_hash: str = PASSWORD_HASH) -> User:
+    # Users here have a real hash of PASSWORD unless a test overrides it.
+    return make_user(is_active=is_active, password_hash=password_hash)
+
+
 
 
 @pytest.fixture
@@ -167,9 +161,7 @@ def test_create_user_rejects_existing_email_case_insensitively(
 
 def test_create_user_maps_unique_violation_race(session: MagicMock, users: MagicMock) -> None:
     users.get_by_email.return_value = None
-    orig = Exception("dup")
-    orig.diag = SimpleNamespace(constraint_name="uq_users_email")  # type: ignore[attr-defined]
-    users.add.side_effect = IntegrityError("INSERT", {}, orig)
+    users.add.side_effect = integrity_error("uq_users_email")
 
     with pytest.raises(BusinessRuleError, match="already exists"):
         UserService(session, users).create_user(_user_create())

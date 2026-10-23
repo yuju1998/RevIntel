@@ -1,7 +1,6 @@
 """Fail-open cache implementations (mocked Redis client, no server)."""
 
 import io
-import json
 from unittest.mock import MagicMock
 
 import pytest
@@ -12,7 +11,12 @@ from app.core.cache import NullCache, RedisCache
 from app.core.config import Settings
 from app.core.logging import configure_logging
 from app.core.redis import create_redis_client
-from tests.unit.conftest import TEST_JWT_SECRET, UNREACHABLE_DATABASE_URL, UNREACHABLE_REDIS_URL
+from tests.unit.helpers import (
+    TEST_JWT_SECRET,
+    UNREACHABLE_DATABASE_URL,
+    UNREACHABLE_REDIS_URL,
+    json_log_records,
+)
 
 
 @pytest.fixture
@@ -27,8 +31,6 @@ def logs() -> io.StringIO:
     return buffer
 
 
-def _records(logs: io.StringIO) -> list[dict]:
-    return [json.loads(line) for line in logs.getvalue().splitlines() if line.strip()]
 
 
 def test_redis_cache_round_trip(client: MagicMock) -> None:
@@ -77,7 +79,7 @@ def test_redis_errors_fail_open_and_log_type_only(
     cache.set("revintel:v1:account:abc", b"v", 300)
     cache.delete("revintel:v1:account:abc")
 
-    records = _records(logs)
+    records = json_log_records(logs)
     assert [r["operation"] for r in records] == ["get", "set", "delete"]
     for record in records:
         assert record["event"] == "cache_unavailable"

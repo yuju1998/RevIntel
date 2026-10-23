@@ -1,4 +1,3 @@
-from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
@@ -7,12 +6,7 @@ from sqlalchemy.orm import Session
 
 from app.core.exceptions import RelatedResourceNotFoundError
 from app.services.transaction import violated_constraint, write_transaction
-
-
-def integrity_error(constraint: str | None) -> IntegrityError:
-    orig = Exception("violation")
-    orig.diag = SimpleNamespace(constraint_name=constraint)  # type: ignore[attr-defined]
-    return IntegrityError("INSERT ...", {}, orig)
+from tests.unit.helpers import integrity_error
 
 
 @pytest.fixture

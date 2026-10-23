@@ -15,6 +15,7 @@ from app.core.logging import (
     configure_logging,
     scrub,
 )
+from tests.unit.helpers import json_log_records
 
 JWT = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjMifQ.c2lnbmF0dXJl"
 ARGON2 = "$argon2id$v=19$m=65536,t=3,p=4$c2FsdA$aGFzaA"
@@ -28,14 +29,12 @@ def stream() -> Iterator[io.StringIO]:
     structlog.contextvars.clear_contextvars()
 
 
-def _json_lines(stream: io.StringIO) -> list[dict]:
-    return [json.loads(line) for line in stream.getvalue().splitlines() if line.strip()]
 
 
 def test_json_output_is_one_object_per_line(stream: io.StringIO) -> None:
     structlog.get_logger("app.test").info("something_happened", count=3)
 
-    [record] = _json_lines(stream)
+    [record] = json_log_records(stream)
     assert record["event"] == "something_happened"
     assert record["count"] == 3
     assert record["level"] == "info"
@@ -47,7 +46,7 @@ def test_stdlib_loggers_share_the_format_and_context(stream: io.StringIO) -> Non
     structlog.contextvars.bind_contextvars(request_id="req-123")
     logging.getLogger("some.library").warning("library said %s", "hi")
 
-    [record] = _json_lines(stream)
+    [record] = json_log_records(stream)
     assert record == {
         "event": "library said hi",
         "request_id": "req-123",
@@ -86,7 +85,7 @@ def test_log_level_is_respected() -> None:
     logging.getLogger("lib").debug("hidden too")
     structlog.get_logger().info("shown")
 
-    assert [r["event"] for r in _json_lines(buffer)] == ["shown"]
+    assert [r["event"] for r in json_log_records(buffer)] == ["shown"]
 
 
 def test_reconfiguring_replaces_only_our_handler() -> None:
@@ -134,7 +133,7 @@ def test_library_loggers_are_routed_or_quieted() -> None:
 def test_sensitive_keys_are_redacted(stream: io.StringIO, key: str) -> None:
     structlog.get_logger().info("event", **{key: "super-sensitive-value"})
 
-    [record] = _json_lines(stream)
+    [record] = json_log_records(stream)
     assert record[key] == REDACTED
     assert "super-sensitive-value" not in stream.getvalue()
 
@@ -144,7 +143,7 @@ def test_nested_sensitive_keys_are_redacted(stream: io.StringIO) -> None:
         "event", payload={"email": "a@b.c", "password": "pw", "items": [{"token": "t"}]}
     )
 
-    [record] = _json_lines(stream)
+    [record] = json_log_records(stream)
     assert record["payload"] == {
         "email": "a@b.c",
         "password": REDACTED,
@@ -169,7 +168,7 @@ def test_sensitive_patterns_are_scrubbed_everywhere(
     logging.getLogger("third.party").warning("got %s", raw)
 
     assert leak not in stream.getvalue()
-    assert len(_json_lines(stream)) == 2
+    assert len(json_log_records(stream)) == 2
 
 
 def test_url_scrubbing_keeps_the_username_and_host() -> None:
@@ -218,7 +217,7 @@ def test_exception_fields_in_json(stream: io.StringIO) -> None:
     except ValueError as exc:
         structlog.get_logger().error("it_failed", exc_info=exc)
 
-    [record] = _json_lines(stream)
+    [record] = json_log_records(stream)
     assert record["exception_type"] == "builtins.ValueError"
     assert record["exception"].startswith("Traceback (most recent call last):")
     assert record["exception"].endswith("builtins.ValueError")
