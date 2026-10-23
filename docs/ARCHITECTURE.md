@@ -40,6 +40,11 @@ commit.
 or labels); `scripts/generate_crm_data.py` is its CLI. It writes only to guarded `*_ml` /
 `*_test` databases (see `docs/DATABASE.md`, "Synthetic CRM data").
 
+`ml/features/` builds point-in-time lead conversion features: one shared
+`compute_features()` for offline training data (`scripts/build_lead_features.py`, read-only
+extraction, parquet output) and online scoring (`online_features.py`). See
+`docs/DATABASE.md`, "Lead conversion features".
+
 Placeholder packages `app/ai/` and `app/ml_inference/` exist for future layers and contain
 no code yet.
 
@@ -120,12 +125,13 @@ no code yet.
   Alembic migrations, guarded to `*_test` databases) and Redis database 15 (guarded
   against database 0).
 - `ml/tests` are in-memory unit tests of the synthetic generator (determinism,
-  relationships, constraints, point-in-time invariants, broad realism bands).
+  relationships, constraints, point-in-time invariants, broad realism bands) and of the
+  feature pipeline (window/availability/label boundaries, leakage, offline/online parity).
 
 ## Future layers (not implemented)
 
-- The lead-conversion ML model (snapshot labels, feature builder, training,
-  evaluation, MLflow registry) and online scoring into `lead_predictions`.
+- Lead-conversion model training, evaluation, MLflow registry and online scoring into
+  `lead_predictions`.
 - MLOps orchestration with Airflow.
 - RAG over `document_chunks` with pgvector, account-scoped retrieval and Bedrock
   generation.

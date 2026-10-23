@@ -10,7 +10,7 @@ data `updated_at` changes for unrelated edits. Keep every use of it behind
 changing feature logic. Never use `updated_at` (or status/converted_at) as a feature.
 """
 
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from app.models.enums import LeadStatus
 
@@ -19,6 +19,12 @@ TERMINAL_TIME_CONVENTION = (
     "DISQUALIFIED leads at updated_at (their disqualification timestamp); other leads are "
     "still open. Not valid for production data. Use only for snapshot eligibility, never "
     "as a model feature."
+)
+
+OBSERVATION_END_CONVENTION = (
+    "Synthetic-dataset convention: the generator simulates each lead for at most "
+    "max_lead_age_days after created_at, so nothing about a lead is observable after "
+    "created_at + max_lead_age_days. A still-open lead is censored there, not a negative."
 )
 
 
@@ -34,3 +40,12 @@ def lead_terminal_time(
     if status == LeadStatus.DISQUALIFIED:
         return updated_at
     return None
+
+
+def lead_observation_end(created_at: datetime, max_lead_age_days: int) -> datetime:
+    """The last moment the generator simulated this lead (see OBSERVATION_END_CONVENTION).
+
+    A label window ending later is unobservable unless a terminal event at or before this
+    time already resolved the outcome.
+    """
+    return created_at + timedelta(days=max_lead_age_days)

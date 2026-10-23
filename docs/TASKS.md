@@ -20,8 +20,8 @@
 
 ## Phase 2 — Data + ML
 - [x] Synthetic CRM generator
-- [ ] Snapshot-based labels
-- [ ] Feature builder
+- [x] Snapshot-based labels
+- [x] Feature builder
 - [ ] Logistic regression
 - [ ] XGBoost
 - [ ] Model evaluation
