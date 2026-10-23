@@ -36,8 +36,12 @@ commit.
 | `app/cli/` | `create_user` (there is no signup API). |
 | `backend/alembic/` | Migrations (`d9abf148e9ed` CRM core, `9d4d176a3488` activities/notes). |
 
-Placeholder packages `app/ai/`, `app/ml_inference/` and `ml/` exist for future layers and
-contain no code yet.
+`ml/synthetic/` generates deterministic synthetic CRM data (raw rows only, no ML features
+or labels); `scripts/generate_crm_data.py` is its CLI. It writes only to guarded `*_ml` /
+`*_test` databases (see `docs/DATABASE.md`, "Synthetic CRM data").
+
+Placeholder packages `app/ai/` and `app/ml_inference/` exist for future layers and contain
+no code yet.
 
 ## Transactions
 
@@ -115,10 +119,12 @@ contain no code yet.
 - Integration tests (`pytest -m integration`) use `revintel_test` (rebuilt from the
   Alembic migrations, guarded to `*_test` databases) and Redis database 15 (guarded
   against database 0).
+- `ml/tests` are in-memory unit tests of the synthetic generator (determinism,
+  relationships, constraints, point-in-time invariants, broad realism bands).
 
 ## Future layers (not implemented)
 
-- Synthetic CRM data and the lead-conversion ML model (feature builder, training,
+- The lead-conversion ML model (snapshot labels, feature builder, training,
   evaluation, MLflow registry) and online scoring into `lead_predictions`.
 - MLOps orchestration with Airflow.
 - RAG over `document_chunks` with pgvector, account-scoped retrieval and Bedrock

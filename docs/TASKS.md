@@ -19,7 +19,7 @@
 - [ ] Tests
 
 ## Phase 2 — Data + ML
-- [ ] Synthetic CRM generator
+- [x] Synthetic CRM generator
 - [ ] Snapshot-based labels
 - [ ] Feature builder
 - [ ] Logistic regression

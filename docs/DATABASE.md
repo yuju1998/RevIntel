@@ -24,10 +24,11 @@ intentionally postponed work is in [Deferred / future considerations](#deferred-
 8. [Service-layer rules](#service-layer-rules)
 9. [RAG isolation rule](#rag-isolation-rule)
 10. [ML point-in-time rules](#ml-point-in-time-rules)
-11. [Implementation order](#implementation-order)
-12. [Design decisions (Q1–Q14)](#design-decisions-q1q14)
-13. [Deferred / future considerations](#deferred--future-considerations)
-14. [Tooling: layout, Alembic, commands](#layout)
+11. [Synthetic CRM data](#synthetic-crm-data)
+12. [Implementation order](#implementation-order)
+13. [Design decisions (Q1–Q14)](#design-decisions-q1q14)
+14. [Deferred / future considerations](#deferred--future-considerations)
+15. [Tooling: layout, Alembic, commands](#layout)
 
 ---
 
@@ -726,6 +727,111 @@ Features may only use data available at or before `T`.
 V1 has no lead history/snapshot table. If lead attributes become mutable in real use, the
 allowed lead-level features above are no longer point-in-time safe (see
 [Deferred / future considerations](#deferred--future-considerations)).
+
+---
+
+## Synthetic CRM data
+
+`scripts/generate_crm_data.py` (logic in `ml/synthetic/`) generates deterministic, raw CRM
+data for model development: users, accounts, contacts, leads and activities. It creates
+**no features, labels or prediction timestamps** and needs no schema change. Notes and
+opportunities are not generated yet, so the first feature set must not use notes (no
+`notes_count_30d`).
+
+### Target database
+
+The dataset lives in a dedicated `revintel_ml` database (integration tests truncate
+`revintel_test`). Create it once:
+
+```bash
+docker exec revintel-postgres createdb -U revintel revintel_ml
+docker exec revintel-postgres psql -U revintel -d revintel_ml -c "CREATE EXTENSION IF NOT EXISTS vector"
+DATABASE_URL=postgresql+psycopg://revintel:revintel@localhost:5432/revintel_ml alembic upgrade head
+```
+
+The target comes **only** from `--database-url` or `SYNTHETIC_DATABASE_URL`; `DATABASE_URL`
+and `.env` are deliberately ignored. Before writing, the generator refuses:
+
+- database names that don't end in `_test` or `_ml` (the dev `revintel` is always refused);
+- a schema that is not at the Alembic head;
+- a database containing `admin@example.com` or the account `RevIntel Co`;
+- a non-empty database, unless `--reset` is given. `--reset` truncates the CRM tables of
+  that guarded database in the same transaction as the insert.
+
+Everything is written with batched Core inserts in a single transaction, so a failure
+leaves nothing behind.
+
+### Usage
+
+```bash
+export SYNTHETIC_DATABASE_URL=postgresql+psycopg://revintel:revintel@localhost:5432/revintel_ml
+python scripts/generate_crm_data.py --seed 42 --accounts 5000 --contacts 20000 \
+  --leads 30000 --activities 100000 [--reset]
+python scripts/generate_crm_data.py --seed 42 --dry-run   # generate and summarise only
+```
+
+Other options: `--reps`, `--admins`, `--as-of` (default `2026-10-01T00:00:00Z`),
+`--lead-history-days` (540), `--max-lead-age-days` (180), `--batch-size` (5000),
+`--manifest` (default `data/raw/synthetic_crm_manifest.json`, gitignored).
+
+The same seed and arguments produce byte-identical rows (deterministic UUIDs; every
+timestamp derives from `--as-of`, never the wall clock) for the pinned numpy/Faker
+versions. The manifest records the configuration, library versions, row counts, summary
+statistics, sanity counters and `dataset_sha256`, the dataset version to log in MLflow.
+
+### How the data is generated
+
+- **Leads** get a hidden quality score from `lead_source`, `company_size`,
+  `estimated_value` and noise. The score is never stored.
+- A **forward, day-by-day simulation** creates lead activities (`lead_id` only) whose rate,
+  type and direction depend on that score. A recency-decayed engagement level (inbound
+  replies, meetings and demos weigh most) and the score drive daily conversion and
+  disqualification hazards. Outcomes depend only on the past, and **no lead activity
+  occurs after conversion or disqualification**.
+- **Account/contact activities** fill the rest of `--activities` exactly (about 30%). If the
+  lead simulation alone exceeds `--activities`, generation fails; it is never re-run or
+  recalibrated to hit a count.
+- Activity text depends only on type and direction and never mentions the outcome.
+- Synthetic users (`*@synthetic.example.com`) share a valid Argon2id hash of a discarded
+  random secret, so nobody can log in as them.
+
+| Final status | `converted_at` | `updated_at` |
+|---|---|---|
+| CONVERTED | conversion time | `converted_at` |
+| DISQUALIFIED | NULL | disqualification time (after every lead activity) |
+| NEW / WORKING / QUALIFIED | NULL | last simulated status change, or `created_at` |
+
+### Terminal-time convention (synthetic data only)
+
+The schema has no lead status history. In this dataset a disqualified lead's exit time is
+its `updated_at`. This is a **synthetic-dataset convention, not a production
+assumption**, and is recorded in the manifest (`conventions.terminal_time`). All code must
+go through `ml/synthetic/conventions.py::lead_terminal_time(status, converted_at,
+updated_at)` so it can later be replaced by a real status-history source.
+
+### Deriving prediction times 
+
+Prediction timestamps are not stored; the training pipeline derives snapshots:
+
+- `T` on a grid after `created_at` (for example every 7 days), only where
+  `T + 30 days <= as_of` (read `as_of` from the manifest), so the label window is fully
+  observed.
+- A snapshot is eligible only while the lead is active: `T < lead_terminal_time(...)`
+  for converted and disqualified leads; open leads are eligible through `as_of`. A
+  disqualified lead is never an open negative after its disqualification.
+- Label: `T < converted_at <= T + 30 days`.
+- Features follow [ML point-in-time rules](#ml-point-in-time-rules): static lead
+  attributes and activities with `occurred_at <= T`. Never `status`, `converted_at`,
+  `updated_at` or `owner_id`. Split by `T`.
+
+### Limitations
+
+- Leads are not linked to accounts or opportunities (no conversion linkage in the schema).
+- No notes, opportunities or lead predictions are generated.
+- Lead attributes never change after creation; real data would need history tables.
+- Leads still open at `as_of` are right-censored; the simulation stops 180 days after
+  creation.
+- Distributions are plausible, not fitted to real CRM data.
 
 ---
 
