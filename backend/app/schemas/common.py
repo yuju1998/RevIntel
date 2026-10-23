@@ -37,7 +37,7 @@ Phone = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, ma
 Website = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=2048)]
 
 # Contact/lead email: trimmed, syntax-checked, otherwise stored as entered.
-# Not for users.email, which the future user service normalizes to lowercase.
+# Not for users.email, which UserService normalizes to lowercase.
 CrmEmail = Annotated[
     str,
     StringConstraints(strip_whitespace=True, min_length=1, max_length=320),

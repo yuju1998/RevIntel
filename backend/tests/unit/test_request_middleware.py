@@ -1,11 +1,9 @@
 """Request IDs, access logging and safe 500s over HTTP (fake repositories, no database)."""
 
 import io
-import json
 import logging
 import uuid
 from collections.abc import Iterator
-from datetime import UTC, datetime
 from typing import Annotated
 from unittest.mock import MagicMock
 
@@ -15,18 +13,20 @@ from fastapi import APIRouter, Depends, FastAPI
 from fastapi.testclient import TestClient
 from pydantic import SecretStr
 
-from app.api.auth import get_auth_service, require_roles
+from app.api.auth import require_roles
+from app.api.deps import get_auth_service
 from app.core.config import Settings
 from app.core.logging import configure_logging
-from app.core.security import create_access_token, hash_password
+from app.core.security import hash_password
 from app.main import create_app
 from app.models import User
 from app.models.enums import UserRole
 from app.repositories.user import UserRepository
 from app.services.auth_service import AuthService
-from tests.unit.conftest import TEST_JWT_SECRET
+from tests.unit.helpers import TEST_JWT_SECRET, bearer_headers, json_log_records, make_user
 
 PASSWORD = "correct horse battery staple"
+PASSWORD_HASH = hash_password(PASSWORD)
 SECRET = SecretStr(TEST_JWT_SECRET)
 ACCESS_LOG_FIELDS = {
     "event",
@@ -43,24 +43,17 @@ ACCESS_LOG_FIELDS = {
 AdminDep = Annotated[User, Depends(require_roles(UserRole.ADMIN))]
 
 
-def _user(role: UserRole = UserRole.SALES_REP) -> User:
-    now = datetime.now(UTC)
-    return User(
-        id=uuid.uuid4(),
-        email="rep@example.com",
-        full_name="Rep",
-        role=role,
-        is_active=True,
-        password_hash=hash_password(PASSWORD),
-        created_at=now,
-        updated_at=now,
-    )
 
 
 def _service_level_work() -> None:
     """Stands in for a service/repository call made deep inside a request."""
     structlog.get_logger("app.services.fake").info("service_work")
     logging.getLogger("app.repositories.fake").info("repository_work")
+
+
+
+def _user(role: UserRole = UserRole.SALES_REP, *, is_active: bool = True) -> User:
+    return make_user(role, is_active=is_active, password_hash=PASSWORD_HASH)
 
 
 @pytest.fixture
@@ -108,17 +101,12 @@ def client(app: FastAPI, logs: io.StringIO) -> Iterator[TestClient]:
     structlog.contextvars.clear_contextvars()
 
 
-def _records(logs: io.StringIO) -> list[dict]:
-    return [json.loads(line) for line in logs.getvalue().splitlines() if line.strip()]
 
 
 def _access_logs(logs: io.StringIO) -> list[dict]:
-    return [r for r in _records(logs) if r["event"] == "http_request"]
+    return [r for r in json_log_records(logs) if r["event"] == "http_request"]
 
 
-def _bearer(user: User) -> dict[str, str]:
-    token = create_access_token(user.id, secret=SECRET, expires_minutes=5)
-    return {"Authorization": f"Bearer {token.token}"}
 
 
 # --- X-Request-ID -------------------------------------------------------------------------
@@ -155,7 +143,7 @@ def test_403_response_has_request_id(
     user = _user(UserRole.SALES_REP)
     users.get.return_value = user
 
-    response = client.get("/_test/admin", headers=_bearer(user))
+    response = client.get("/_test/admin", headers=bearer_headers(user))
 
     assert response.status_code == 403
     assert _access_logs(logs)[0]["request_id"] == response.headers["X-Request-ID"]
@@ -224,7 +212,7 @@ def test_authenticated_requests_log_user_id(
     user = _user()
     users.get.return_value = user
 
-    client.get("/api/v1/users/me", headers=_bearer(user))
+    client.get("/api/v1/users/me", headers=bearer_headers(user))
     client.get("/api/v1/users/me")
 
     authenticated, anonymous = _access_logs(logs)
@@ -253,7 +241,7 @@ def test_request_id_reaches_service_and_stdlib_logs_in_sync_routes(
     response = client.get("/_test/work")
 
     request_id = response.headers["X-Request-ID"]
-    by_event = {record["event"]: record for record in _records(logs)}
+    by_event = {record["event"]: record for record in json_log_records(logs)}
     assert by_event["service_work"]["request_id"] == request_id
     assert by_event["repository_work"]["request_id"] == request_id
     assert by_event["http_request"]["request_id"] == request_id
@@ -266,7 +254,7 @@ def test_context_is_cleared_between_and_after_requests(
     second = client.get("/_test/work").headers["X-Request-ID"]
     structlog.get_logger().info("outside_any_request")
 
-    records = _records(logs)
+    records = json_log_records(logs)
     service_ids = [r["request_id"] for r in records if r["event"] == "service_work"]
     assert service_ids == [first, second]
     outside = next(r for r in records if r["event"] == "outside_any_request")
@@ -284,7 +272,7 @@ def test_unhandled_exception_returns_generic_500(client: TestClient, logs: io.St
     assert "boom" not in response.text and "hunter2" not in response.text
 
     request_id = response.headers["X-Request-ID"]
-    [error] = [r for r in _records(logs) if r["event"] == "unhandled_exception"]
+    [error] = [r for r in json_log_records(logs) if r["event"] == "unhandled_exception"]
     assert error["request_id"] == request_id
     assert error["exception_type"] == "builtins.RuntimeError"
     assert "in boom" in error["exception"]  # frames are kept
@@ -296,7 +284,7 @@ def test_unhandled_exception_returns_generic_500(client: TestClient, logs: io.St
 def test_unhandled_exception_is_logged_once(client: TestClient, logs: io.StringIO) -> None:
     client.get("/_test/boom")
 
-    events = [r["event"] for r in _records(logs)]
+    events = [r["event"] for r in json_log_records(logs)]
     assert events.count("unhandled_exception") == 1
     assert events.count("http_request") == 1
 

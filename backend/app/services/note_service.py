@@ -4,18 +4,17 @@ import uuid
 
 from sqlalchemy.orm import Session
 
-from app.core.exceptions import BusinessRuleError
 from app.core.security import invalid_token
 from app.models.note import Note
 from app.repositories.note import NoteRepository
 from app.schemas.note import PARENT_FIELDS, NoteCreate
-from app.services.crm_references import CrmRepositories, not_found_for, resolve_account_id
+from app.services.crm_references import (
+    CrmRepositories,
+    not_found_for,
+    parent_required_for,
+    resolve_account_id,
+)
 from app.services.transaction import write_transaction
-
-
-def _parent_required() -> BusinessRuleError:
-    return BusinessRuleError(f"at least one of {', '.join(PARENT_FIELDS)} is required")
-
 
 # Backstops for races between validation and commit; other IntegrityErrors are re-raised.
 CONSTRAINT_ERRORS = {
@@ -24,7 +23,7 @@ CONSTRAINT_ERRORS = {
     "fk_notes_opportunity_id_opportunities": not_found_for("opportunity_id", "opportunity"),
     # The authenticated user was deleted mid-request: their credentials are no longer valid.
     "fk_notes_author_id_users": invalid_token,
-    "ck_notes_at_least_one_parent": _parent_required,
+    "ck_notes_at_least_one_parent": parent_required_for(PARENT_FIELDS),
 }
 
 

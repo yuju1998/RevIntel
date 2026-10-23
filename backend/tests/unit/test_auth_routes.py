@@ -9,19 +9,22 @@ from unittest.mock import MagicMock
 import pytest
 from fastapi import APIRouter, Depends, FastAPI
 from fastapi.testclient import TestClient
+from httpx2 import Response
 from pydantic import SecretStr
 
-from app.api.auth import AdminUserDep, get_auth_service, require_roles
+from app.api.auth import AdminUserDep, require_roles
+from app.api.deps import get_auth_service
 from app.core.config import Settings
-from app.core.security import create_access_token, hash_password
+from app.core.security import hash_password
 from app.main import create_app
 from app.models import User
 from app.models.enums import UserRole
 from app.repositories.user import UserRepository
 from app.services.auth_service import AuthService
-from tests.unit.conftest import TEST_JWT_SECRET
+from tests.unit.helpers import TEST_JWT_SECRET, bearer_headers, make_user
 
 PASSWORD = "correct horse battery staple"
+PASSWORD_HASH = hash_password(PASSWORD)
 SECRET = SecretStr(TEST_JWT_SECRET)
 
 AnyRoleDep = Annotated[User, Depends(require_roles(UserRole.ADMIN, UserRole.SALES_REP))]
@@ -37,23 +40,13 @@ PROTECTED_MUTATIONS = [
 ]
 
 
+
+
+
+
+
 def _user(role: UserRole = UserRole.SALES_REP, *, is_active: bool = True) -> User:
-    now = datetime.now(UTC)
-    return User(
-        id=uuid.uuid4(),
-        email="rep@example.com",
-        full_name="Rep",
-        role=role,
-        is_active=is_active,
-        password_hash=hash_password(PASSWORD),
-        created_at=now,
-        updated_at=now,
-    )
-
-
-def _bearer(user: User, **overrides: object) -> dict[str, str]:
-    token = create_access_token(user.id, secret=SECRET, expires_minutes=5, **overrides)
-    return {"Authorization": f"Bearer {token.token}"}
+    return make_user(role, is_active=is_active, password_hash=PASSWORD_HASH)
 
 
 @pytest.fixture
@@ -89,7 +82,7 @@ def client(app: FastAPI) -> Iterator[TestClient]:
         yield test_client
 
 
-def _assert_401(response) -> None:  # noqa: ANN001
+def _assert_401(response: Response) -> None:
     assert response.status_code == 401
     assert response.headers["www-authenticate"] == "Bearer"
 
@@ -175,7 +168,7 @@ def test_users_me_returns_current_user_without_hash(client: TestClient, users: M
     user = _user(UserRole.ADMIN)
     users.get.return_value = user
 
-    response = client.get("/api/v1/users/me", headers=_bearer(user))
+    response = client.get("/api/v1/users/me", headers=bearer_headers(user))
 
     assert response.status_code == 200
     body = response.json()
@@ -220,13 +213,13 @@ def test_token_of_deleted_or_inactive_user_is_rejected(
     user = _user()
     users.get.return_value = None if stored == "deleted" else _user(is_active=False)
 
-    _assert_401(client.get("/api/v1/users/me", headers=_bearer(user)))
+    _assert_401(client.get("/api/v1/users/me", headers=bearer_headers(user)))
 
 
 def test_expired_token_is_rejected(client: TestClient, users: MagicMock) -> None:
     user = _user()
     users.get.return_value = user
-    headers = _bearer(user, now=datetime.now(UTC) - timedelta(minutes=10))
+    headers = bearer_headers(user, now=datetime.now(UTC) - timedelta(minutes=10))
 
     _assert_401(client.get("/api/v1/users/me", headers=headers))
     users.get.assert_not_called()
@@ -287,7 +280,7 @@ def test_admin_only_dependency(
     user = _user(role)
     users.get.return_value = user
 
-    response = client.get("/_test/admin-only", headers=_bearer(user))
+    response = client.get("/_test/admin-only", headers=bearer_headers(user))
 
     assert response.status_code == expected
     if expected == 403:
@@ -301,7 +294,7 @@ def test_require_roles_allows_listed_roles(
     user = _user(role)
     users.get.return_value = user
 
-    assert client.get("/_test/any-role", headers=_bearer(user)).status_code == 200
+    assert client.get("/_test/any-role", headers=bearer_headers(user)).status_code == 200
 
 
 def test_role_check_requires_authentication_first(client: TestClient) -> None:

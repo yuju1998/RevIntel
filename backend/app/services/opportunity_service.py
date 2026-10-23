@@ -4,22 +4,18 @@ import uuid
 
 from sqlalchemy.orm import Session
 
-from app.core.exceptions import NotFoundError, RelatedResourceNotFoundError
+from app.core.exceptions import NotFoundError
 from app.models.opportunity import Opportunity
 from app.repositories.account import AccountRepository
 from app.repositories.opportunity import OpportunityRepository
 from app.repositories.user import UserRepository
 from app.schemas.opportunity import OpportunityCreate, OpportunityUpdate
+from app.services.crm_references import not_found, not_found_for
 from app.services.transaction import write_transaction
 from app.services.user_validation import ensure_active_user, user_not_found_for
 
-
-def _account_not_found() -> RelatedResourceNotFoundError:
-    return RelatedResourceNotFoundError("account_id does not refer to an existing account")
-
-
 CONSTRAINT_ERRORS = {
-    "fk_opportunities_account_id_accounts": _account_not_found,
+    "fk_opportunities_account_id_accounts": not_found_for("account_id", "account"),
     "fk_opportunities_owner_id_users": user_not_found_for("owner_id"),
 }
 
@@ -40,7 +36,7 @@ class OpportunityService:
     def create_opportunity(self, data: OpportunityCreate) -> Opportunity:
         with write_transaction(self._session, CONSTRAINT_ERRORS):
             if self._accounts.get(data.account_id) is None:
-                raise _account_not_found()
+                raise not_found("account_id", "account")
             ensure_active_user(self._users, data.owner_id, field="owner_id")
             opportunity = self._opportunities.add(Opportunity(**data.model_dump()))
         return opportunity

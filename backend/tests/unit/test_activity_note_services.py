@@ -2,7 +2,6 @@
 
 import uuid
 from datetime import UTC, datetime, timedelta
-from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
@@ -29,6 +28,7 @@ from app.services.activity_service import ActivityService
 from app.services.crm_references import CrmRepositories
 from app.services.note_service import NoteService
 from app.services.timeline_service import TimelineService
+from tests.unit.helpers import integrity_error, mock_repo
 
 ACCOUNT = uuid.uuid4()
 OPPORTUNITY = uuid.uuid4()
@@ -36,10 +36,6 @@ OPPORTUNITY = uuid.uuid4()
 CURRENT_USER_ID = uuid.uuid4()
 
 
-def _repo(cls: type) -> MagicMock:
-    repo = MagicMock(spec=cls)
-    repo.add.side_effect = lambda obj: obj
-    return repo
 
 
 @pytest.fixture
@@ -49,23 +45,23 @@ def session() -> MagicMock:
 
 @pytest.fixture
 def crm() -> CrmRepositories:
-    accounts = _repo(AccountRepository)
+    accounts = mock_repo(AccountRepository)
     accounts.get.return_value = Account(id=ACCOUNT)
-    opportunities = _repo(OpportunityRepository)
+    opportunities = mock_repo(OpportunityRepository)
     opportunities.get.return_value = Opportunity(id=OPPORTUNITY, account_id=ACCOUNT)
-    leads = _repo(LeadRepository)
+    leads = mock_repo(LeadRepository)
     leads.get.return_value = Lead()
     return CrmRepositories(
         accounts=accounts,
         leads=leads,
         opportunities=opportunities,
-        contacts=_repo(ContactRepository),
+        contacts=mock_repo(ContactRepository),
     )
 
 
 @pytest.fixture
 def activities() -> MagicMock:
-    return _repo(ActivityRepository)
+    return mock_repo(ActivityRepository)
 
 
 @pytest.fixture
@@ -77,7 +73,7 @@ def activity_service(
 
 @pytest.fixture
 def note_service(session: MagicMock, crm: CrmRepositories) -> NoteService:
-    return NoteService(session, _repo(NoteRepository), crm)
+    return NoteService(session, mock_repo(NoteRepository), crm)
 
 
 def _activity_create(**fields: object) -> ActivityCreate:
@@ -131,10 +127,6 @@ def test_activity_cross_account_conflict_writes_nothing(
     session.commit.assert_not_called()
 
 
-def _integrity_error(constraint: str) -> IntegrityError:
-    orig = Exception("violation")
-    orig.diag = SimpleNamespace(constraint_name=constraint)  # type: ignore[attr-defined]
-    return IntegrityError("INSERT", {}, orig)
 
 
 @pytest.mark.parametrize(
@@ -149,7 +141,7 @@ def _integrity_error(constraint: str) -> IntegrityError:
 def test_known_activity_constraint_violations_become_domain_errors(
     activity_service: ActivityService, session: MagicMock, constraint: str, error: type
 ) -> None:
-    session.commit.side_effect = _integrity_error(constraint)
+    session.commit.side_effect = integrity_error(constraint)
 
     with pytest.raises(error):
         _create_activity(activity_service, _activity_create(opportunity_id=OPPORTUNITY))
@@ -158,7 +150,7 @@ def test_known_activity_constraint_violations_become_domain_errors(
 def test_unknown_integrity_errors_are_reraised(
     activity_service: ActivityService, session: MagicMock
 ) -> None:
-    session.commit.side_effect = _integrity_error("ck_activities_activity_type")
+    session.commit.side_effect = integrity_error("ck_activities_activity_type")
 
     with pytest.raises(IntegrityError):
         _create_activity(activity_service, _activity_create(account_id=ACCOUNT))
@@ -215,7 +207,7 @@ def test_create_note_rejects_conflicting_accounts(note_service: NoteService) -> 
 
 
 def test_timeline_requires_existing_account() -> None:
-    accounts = _repo(AccountRepository)
+    accounts = mock_repo(AccountRepository)
     accounts.get.return_value = None
     timeline = MagicMock(spec=TimelineRepository)
 
@@ -225,7 +217,7 @@ def test_timeline_requires_existing_account() -> None:
 
 
 def test_timeline_passes_pagination_and_total_through() -> None:
-    accounts = _repo(AccountRepository)
+    accounts = mock_repo(AccountRepository)
     accounts.get.return_value = Account()
     timeline = MagicMock(spec=TimelineRepository)
     records = [Activity(), Note()]

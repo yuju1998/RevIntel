@@ -308,7 +308,8 @@ Conversion rule:
 - `status = CONVERTED` ⇒ `converted_at` is populated (enforced by the CHECK above).
 - The reverse is intentionally **not** enforced: other statuses normally have
   `converted_at = NULL`, but the database allows a value so future workflows stay flexible.
-- When set, `converted_at >= created_at` (service-layer rule).
+- The API cannot create converted leads or set `converted_at` today (see service rule 2);
+  when a conversion workflow exists it must also keep `converted_at >= created_at`.
 
 Indexes: `ix_leads_owner_id`, `ix_leads_status`, `ix_leads_lead_source`.
 
@@ -623,8 +624,13 @@ when the corresponding phase is built.
    `users.email` before every insert and lowercase the input before every lookup
    (`app.core.emails.normalize_user_email`, used by `UserService` and login). No database
    CHECK; the plain `UNIQUE (email)` stays.
-2. **Lead conversion** (Phase 1): when setting `status = CONVERTED`, set `converted_at`;
-   `converted_at >= created_at`.
+2. **Lead status** (current behavior): there is no lead update or conversion workflow
+   yet. `POST /leads` accepts every status except `CONVERTED` (rejected with `422`) and
+   never accepts `converted_at`, so leads created through the API always have
+   `converted_at = NULL`. `ck_leads_converted_requires_converted_at` is the database
+   backstop for any other write path (e.g. synthetic data). A future conversion workflow
+   must set `converted_at` (with `converted_at >= created_at`) in the same write that
+   sets `status = CONVERTED`.
 3. **Cross-account consistency for activities and notes** (Phase 2). A SQL CHECK cannot
    enforce cross-table rules, so before insert/update the service resolves the account of
    every referenced account-scoped entity and rejects the write if they disagree:
@@ -868,7 +874,7 @@ Against PostgreSQL (`pytest -m integration`, requires `docker compose up -d`):
   `Base.metadata`.
 - `test_constraints_integration.py`: unique, CHECK, FK, `RESTRICT` and `SET NULL` behavior,
   UTC timestamps, `updated_at` changing only on real updates.
-- `test_phase2_constraints_integration.py`: at-least-one-parent and enum CHECKs, activity/note
+- `test_activity_note_constraints_integration.py`: at-least-one-parent and enum CHECKs, activity/note
   foreign keys, `RESTRICT` on CRM parent deletion (SQL and ORM), `SET NULL` of
   `created_by_id` / `author_id` on user deletion.
 

@@ -5,6 +5,7 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 from fastapi.testclient import TestClient
+from httpx2 import Response
 from sqlalchemy.orm import Session
 
 from app.models import Account, User
@@ -24,12 +25,12 @@ NOTES = "/api/v1/notes"
 HOUR_AGO = (datetime.now(UTC) - timedelta(hours=1)).isoformat()
 
 
-def _post_activity(client: TestClient, **fields: object):  # noqa: ANN202
+def _post_activity(client: TestClient, **fields: object) -> Response:
     payload = {"activity_type": "MEETING", "direction": "OUTBOUND", "occurred_at": HOUR_AGO}
     return client.post(ACTIVITIES, json={**payload, **{k: _json(v) for k, v in fields.items()}})
 
 
-def _post_note(client: TestClient, **fields: object):  # noqa: ANN202
+def _post_note(client: TestClient, **fields: object) -> Response:
     payload = {"body": "Spoke with the CFO."}
     return client.post(NOTES, json={**payload, **{k: _json(v) for k, v in fields.items()}})
 

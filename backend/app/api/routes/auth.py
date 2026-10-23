@@ -2,7 +2,7 @@
 
 from fastapi import APIRouter
 
-from app.api.auth import AuthServiceDep
+from app.api.deps import AuthServiceDep
 from app.api.sensitive_route import SensitiveBodyRoute
 from app.schemas.auth import LoginRequest, TokenResponse
 

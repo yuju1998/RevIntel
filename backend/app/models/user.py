@@ -1,4 +1,4 @@
-"""Application users. Authentication is implemented in a later phase."""
+"""Application users. Created via UserService (CLI); authenticated with JWTs."""
 
 from typing import TYPE_CHECKING
 
@@ -19,7 +19,7 @@ if TYPE_CHECKING:
 class User(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     __tablename__ = "users"
 
-    # Canonical lowercase; the future user/auth service normalizes before persistence.
+    # Canonical lowercase: UserService and login normalize (app.core.emails).
     email: Mapped[str] = mapped_column(String(320), unique=True)
     # Deferred: loaded only when login verifies a password, so ordinary queries (e.g.
     # resolving the current user on every request) never read or log it.

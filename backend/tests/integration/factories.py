@@ -16,7 +16,8 @@ from app.models.enums import (
     UserRole,
 )
 
-# Clearly fake: Phase 1 has no password hashing.
+# Clearly fake and not an Argon2 hash, so such users can never log in. Pass
+# `password=` to create_user for a real, verifiable hash.
 FAKE_PASSWORD_HASH = "not-a-real-hash"
 
 

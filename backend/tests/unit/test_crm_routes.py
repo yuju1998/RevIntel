@@ -19,23 +19,18 @@ from app.api.deps import (
 from app.core.config import Settings
 from app.core.exceptions import BusinessRuleError, NotFoundError, RelatedResourceNotFoundError
 from app.main import create_app
-from app.models import Account, Contact, Lead, Opportunity, User
-from app.models.enums import LeadSource, LeadStatus, OpportunityStage, UserRole
+from app.models import Account, Contact, Lead, Opportunity
+from app.models.enums import LeadSource, LeadStatus, OpportunityStage
 from app.services.account_service import AccountService
 from app.services.contact_service import ContactService
 from app.services.lead_service import LeadService
 from app.services.opportunity_service import OpportunityService
 from app.services.pagination import PageResult
+from tests.unit.helpers import make_user
 
 NOW = datetime(2026, 10, 20, 12, 0, tzinfo=UTC)
 
-AUTH_USER = User(
-    id=uuid.uuid4(),
-    email="rep@example.com",
-    full_name="Sales Rep",
-    role=UserRole.SALES_REP,
-    is_active=True,
-)
+AUTH_USER = make_user()
 
 
 def _account(**fields: object) -> Account:

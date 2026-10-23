@@ -4,19 +4,19 @@ import uuid
 
 from sqlalchemy.orm import Session
 
-from app.core.exceptions import BusinessRuleError, NotFoundError
+from app.core.exceptions import NotFoundError
 from app.core.security import invalid_token
 from app.models.activity import Activity
 from app.repositories.activity import ActivityRepository
 from app.schemas.activity import PARENT_FIELDS, ActivityCreate
-from app.services.crm_references import CrmRepositories, not_found_for, resolve_account_id
+from app.services.crm_references import (
+    CrmRepositories,
+    not_found_for,
+    parent_required_for,
+    resolve_account_id,
+)
 from app.services.pagination import PageResult
 from app.services.transaction import write_transaction
-
-
-def _parent_required() -> BusinessRuleError:
-    return BusinessRuleError(f"at least one of {', '.join(PARENT_FIELDS)} is required")
-
 
 # Backstops for races between validation and commit; other IntegrityErrors are re-raised.
 CONSTRAINT_ERRORS = {
@@ -26,7 +26,7 @@ CONSTRAINT_ERRORS = {
     "fk_activities_contact_id_contacts": not_found_for("contact_id", "contact"),
     # The authenticated user was deleted mid-request: their credentials are no longer valid.
     "fk_activities_created_by_id_users": invalid_token,
-    "ck_activities_at_least_one_parent": _parent_required,
+    "ck_activities_at_least_one_parent": parent_required_for(PARENT_FIELDS),
 }
 
 
