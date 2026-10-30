@@ -45,6 +45,31 @@ or labels); `scripts/generate_crm_data.py` is its CLI. It writes only to guarded
 extraction, parquet output) and online scoring (`online_features.py`). See
 `docs/DATABASE.md`, "Lead conversion features".
 
+`ml/training/` and `ml/evaluation/` train and evaluate the lead conversion candidates
+(`scripts/train_lead_models.py`; no database access):
+
+- **Data contract:** the feature table must match the current feature spec (version,
+  fingerprint, active features, columns) and its recorded `features_sha256`, otherwise
+  training fails with `FeatureSchemaError`. Loading a saved model checks the spec too.
+- **Purged chronological split** on `prediction_timestamp` (70/15/15 quantiles). A
+  snapshot's label window `(T, T + 30d]` must end strictly before the next split starts;
+  crossing snapshots are dropped. Leads may appear in several splits; `lead_id` is never
+  a feature.
+- **Candidates:** Logistic Regression (float conversion → median imputation + missing
+  indicator → scaling) and XGBoost (float conversion → native NaN handling, early stopping
+  and `max_depth ∈ {3, 5}` chosen on validation). Both share the split rows, categorical
+  semantics (missing → `__missing__`, one-hot, unknown categories ignored) and evaluation.
+  No class weighting or calibration.
+- **Evaluation:** ROC-AUC, average precision, Brier, and precision/recall/F1 at a threshold
+  that maximises validation F1 (ties → higher), frozen before the test split is scored
+  once. Naive baseline: constant training positive rate.
+- **Artifacts** (gitignored): `artifacts/models/lead_conversion/<model>/model.joblib` (the
+  full Pipeline, preprocessing included; a pickle, so load only artifacts this project
+  produced) and `metadata.json` (dataset and features hashes, spec version/fingerprint,
+  active features, threshold, split, hyperparameters, metrics), plus
+  `evaluation_report.json`.
+- **macOS:** XGBoost needs the OpenMP runtime: `brew install libomp`.
+
 Placeholder packages `app/ai/` and `app/ml_inference/` exist for future layers and contain
 no code yet.
 

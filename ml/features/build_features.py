@@ -95,7 +95,7 @@ def features_sha256(table: pd.DataFrame) -> str:
     return hashlib.sha256(table.to_csv(index=False, lineterminator="\n").encode()).hexdigest()
 
 
-def _git_commit() -> str | None:
+def git_commit() -> str | None:
     try:
         result = subprocess.run(
             ["git", "rev-parse", "HEAD"], cwd=ROOT, capture_output=True, text=True, check=True
@@ -147,7 +147,7 @@ def build(
         "features_sha256": features_sha256(table),
         "row_count": len(table),
         "positive_rate": statistics["positive_rate"],
-        "git_commit": _git_commit(),
+        "git_commit": git_commit(),
     }
     return FeatureBuild(table=table, metadata=metadata, statistics=statistics)
 
