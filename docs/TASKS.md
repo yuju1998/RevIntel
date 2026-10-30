@@ -22,9 +22,9 @@
 - [x] Synthetic CRM generator
 - [x] Snapshot-based labels
 - [x] Feature builder
-- [ ] Logistic regression
-- [ ] XGBoost
-- [ ] Model evaluation
+- [x] Logistic regression
+- [x] XGBoost
+- [x] Model evaluation
 - [ ] MLflow
 - [ ] Model registry
 - [ ] Online scoring
