@@ -25,8 +25,8 @@
 - [x] Logistic regression
 - [x] XGBoost
 - [x] Model evaluation
-- [ ] MLflow
-- [ ] Model registry
+- [x] MLflow
+- [x] Model registry
 - [ ] Online scoring
 
 ## Phase 3 — MLOps

@@ -87,4 +87,5 @@ was scored once, at the end.
   - no Notes feature yet
   - snapshot eligibility relies on the synthetic terminal-time and observation-end
     conventions
-- **Not yet in place:** models are not tracked in MLflow, registered or served online.
+- **Not yet in place:** no version has been reviewed or promoted, and models are not served
+  online. Tracked training registers the candidates in MLflow (`docs/MLFLOW.md`).
