@@ -69,6 +69,10 @@ extraction, parquet output) and online scoring (`online_features.py`). See
   active features, threshold, split, hyperparameters, metrics), plus
   `evaluation_report.json`.
 - **macOS:** XGBoost needs the OpenMP runtime: `brew install libomp`.
+- **MLflow (optional, `--track`):** logs a training-session run with nested candidate runs
+  and registers each candidate as a version of `revintel-lead-conversion`
+  (`ml/training/tracking.py`). Training and evaluation logic are unchanged, and no aliases
+  are assigned automatically. See `docs/MLFLOW.md`.
 
 Placeholder packages `app/ai/` and `app/ml_inference/` exist for future layers and contain
 no code yet.
@@ -155,7 +159,7 @@ no code yet.
 
 ## Future layers (not implemented)
 
-- Lead-conversion model training, evaluation, MLflow registry and online scoring into
+- Model promotion (manual champion/challenger aliases) and online scoring into
   `lead_predictions`.
 - MLOps orchestration with Airflow.
 - RAG over `document_chunks` with pgvector, account-scoped retrieval and Bedrock

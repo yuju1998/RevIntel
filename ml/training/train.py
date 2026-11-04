@@ -11,6 +11,7 @@ evaluation code. Order of use of the data:
 
 import argparse
 import json
+import os
 import platform
 import sys
 import time
@@ -228,9 +229,34 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Train and evaluate lead conversion models.")
     parser.add_argument("--features", type=Path, default=DEFAULT_FEATURES)
     parser.add_argument("--output-dir", type=Path, default=DEFAULT_OUTPUT_DIR)
+    parser.add_argument(
+        "--track",
+        action="store_true",
+        help="log runs to MLflow and register both candidates (off by default)",
+    )
+    parser.add_argument(
+        "--tracking-uri",
+        default=os.environ.get("MLFLOW_TRACKING_URI", "http://127.0.0.1:5001"),
+        help="MLflow tracking server (default: $MLFLOW_TRACKING_URI or http://127.0.0.1:5001)",
+    )
+    parser.add_argument("--experiment", default="lead-conversion")
+    parser.add_argument(
+        "--registered-model",
+        default=os.environ.get("MLFLOW_MODEL_NAME", "revintel-lead-conversion"),
+    )
     args = parser.parse_args(argv)
 
     started = time.perf_counter()
+    if args.track:
+        # Imported only when tracking is requested; checked before any training.
+        os.environ.setdefault("MLFLOW_DISABLE_AGENT_HINT", "1")
+        from ml.training import tracking
+
+        try:
+            tracking.require_tracking_server(args.tracking_uri)
+        except tracking.TrackingUnavailableError as exc:
+            print(f"Error: {exc}", file=sys.stderr)
+            return 2
     try:
         table = load_feature_table(args.features)
     except (FileNotFoundError, FeatureSchemaError) as exc:
@@ -241,6 +267,26 @@ def main(argv: Sequence[str] | None = None) -> int:
     write_outputs(result, args.output_dir)
     print(format_report(result.report))
     print(f"Wrote models and {REPORT_FILE} to {args.output_dir}")
+    if args.track:
+        print(f"Logging to MLflow at {args.tracking_uri} (experiment {args.experiment!r})")
+        try:
+            summary = tracking.log_candidates(
+                result,
+                table,
+                tracking_uri=args.tracking_uri,
+                experiment=args.experiment,
+                registered_model=args.registered_model,
+            )
+        except (tracking.MlflowException, OSError) as exc:
+            print(
+                f"Error: MLflow logging failed ({exc}); local artifacts are in {args.output_dir}.",
+                file=sys.stderr,
+            )
+            return 1
+        print(
+            f"Registered {args.registered_model} versions {summary.versions} "
+            f"(training session run {summary.session_run_id}); no aliases assigned."
+        )
     print(f"Total time: {time.perf_counter() - started:.1f}s")
     return 0
 
