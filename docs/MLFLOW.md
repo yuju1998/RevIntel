@@ -67,7 +67,8 @@ of that it:
 ### The registered model
 
 - **Loading:** a version is the full sklearn Pipeline, preprocessing included, stored with
-  skops. Loading it needs this repo on `PYTHONPATH`.
+  skops. Loading it needs the repo root and `backend` on the path: run from the repo root
+  with `PYTHONPATH=.:backend`.
 - **Prediction:** the generic MLflow interface (`mlflow.pyfunc`) returns `predict_proba`:
   an array of shape (rows, 2) holding [P(not converted), P(converted)].
 - **Signature:**
@@ -85,7 +86,8 @@ of that it:
   - `validation_pr_auc`, `test_pr_auc`
   - `training_session_run_id`, `git_commit`
 
-`validation_status` is reserved for a future explicit review or promotion decision.
+`validation_status` is set only by the manual promotion command (see section 5). Tracked
+training never sets it.
 
 ## 3. Open the UI
 
@@ -106,22 +108,70 @@ for v in client.search_model_versions("name='revintel-lead-conversion'"):
 EOF
 ```
 
-## 5. Assign `champion` / `challenger` manually
+## 5. Choose a `challenger` and promote it to `champion`
 
-Training never assigns aliases. After reviewing the versions:
+Training only registers candidates and never assigns aliases. Promotion is a manual,
+three-step decision. Run these commands from the repo root with the tracking server
+running.
+
+**1. Mark a registered version as the challenger:**
 
 ```bash
-python - <<'EOF'
-from mlflow import MlflowClient
-client = MlflowClient("http://127.0.0.1:5001")
-name = "revintel-lead-conversion"
-client.set_registered_model_alias(name, "champion", "2")      # the reviewed version
-client.set_registered_model_alias(name, "challenger", "1")    # optional
-client.set_model_version_tag(name, "2", "validation_status", "approved")
-print(client.get_model_version_by_alias(name, "champion").version)
+python -m ml.training.register --version <N>
+```
+
+This doesn't create a model version. It moves the `challenger` alias to version N and
+sets no tags. It refuses a version that doesn't exist, isn't `READY`, or is the current
+`champion`.
+
+**2. Evaluate it manually.** Compare it with the current champion using the tags and
+metrics from section 4 or the UI. For checks of your own, load it from the repo root with:
+
+```bash
+PYTHONPATH=.:backend python - <<'EOF'
+import mlflow
+mlflow.set_tracking_uri("http://127.0.0.1:5001")
+model = mlflow.pyfunc.load_model("models:/revintel-lead-conversion@challenger")
+print(model.metadata.signature)
 EOF
 ```
 
-`models:/revintel-lead-conversion@champion` then resolves to that version. An alias moves
-when you set it on another version, and `client.delete_registered_model_alias(name,
-"challenger")` removes one.
+**3. Promote it:**
+
+```bash
+python -m ml.training.promote --version <N>
+```
+
+This refuses unless version N is exactly the current `challenger`. If it is, the command:
+- sets `validation_status=approved` on version N
+- moves the `champion` alias to version N
+- removes the `challenger` alias
+
+Both commands print the previous and new alias targets, for example:
+
+```
+revintel-lead-conversion:
+  champion: version 1 -> version 2
+  challenger: version 2 -> none
+version 2 (xgboost): validation_baseline_check=passed
+version 2: validation_status=approved
+Version 1 is kept in the registry.
+```
+
+`models:/revintel-lead-conversion@champion` then resolves to the new version.
+
+**How the tags and aliases behave:**
+- **Which version is current:** only the `champion` alias says this.
+  `validation_status=approved` stays on a version after it's replaced, so it means "was
+  approved at some point".
+- **Old versions:** they are never deleted. A replaced champion stays in the registry
+  with its tags.
+- **`validation_baseline_check`:** never changed by these commands. If it's `failed`, they
+  print a warning but don't block, because the decision is yours.
+- **A failed promotion:** if `promote` stops partway, rerun the same command to finish it.
+
+**Options:** both commands accept `--registered-model` (default `$MLFLOW_MODEL_NAME`, then
+`revintel-lead-conversion`) and `--tracking-uri` (default `$MLFLOW_TRACKING_URI`, then
+`http://127.0.0.1:5001`).
+
+**Exit codes:** 2 for a refusal or an unreachable server, 1 for an MLflow failure.
