@@ -72,7 +72,11 @@ extraction, parquet output) and online scoring (`online_features.py`). See
 - **MLflow (optional, `--track`):** logs a training-session run with nested candidate runs
   and registers each candidate as a version of `revintel-lead-conversion`
   (`ml/training/tracking.py`). Training and evaluation logic are unchanged, and no aliases
-  are assigned automatically. See `docs/MLFLOW.md`.
+  are assigned automatically.
+- **Manual promotion:** `python -m ml.training.register --version <N>` marks an
+  already-registered version as `challenger`; `python -m ml.training.promote --version <N>`
+  moves that exact version to `champion` and sets `validation_status=approved`. See
+  `docs/MLFLOW.md`.
 
 Placeholder packages `app/ai/` and `app/ml_inference/` exist for future layers and contain
 no code yet.
@@ -159,8 +163,7 @@ no code yet.
 
 ## Future layers (not implemented)
 
-- Model promotion (manual champion/challenger aliases) and online scoring into
-  `lead_predictions`.
+- Online scoring into `lead_predictions`.
 - MLOps orchestration with Airflow.
 - RAG over `document_chunks` with pgvector, account-scoped retrieval and Bedrock
   generation.

@@ -162,7 +162,7 @@ def test_untracked_training_never_touches_mlflow(
         raise AssertionError("MLflow must not be used without --track")
 
     monkeypatch.setattr(tracking, "log_candidates", never)
-    monkeypatch.setattr(tracking, "require_tracking_server", never)
+    monkeypatch.setattr(train, "require_tracking_server", never)
 
     assert train.main(["--features", str(features), "--output-dir", str(tmp_path / "out")]) == 0
     assert (tmp_path / "out" / "xgboost" / "model.joblib").exists()

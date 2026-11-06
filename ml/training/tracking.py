@@ -13,8 +13,6 @@ No alias (champion/challenger) is ever assigned here: promotion is a manual deci
 """
 
 import json
-import urllib.error
-import urllib.request
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
@@ -31,11 +29,9 @@ from mlflow.types import ColSpec, Schema, TensorSpec
 
 from ml.features.feature_spec import ACTIVE_FEATURES, FEATURES_BY_NAME
 from ml.training.dataset import FeatureTable
+from ml.training.mlflow_config import DEFAULT_EXPERIMENT, DEFAULT_REGISTERED_MODEL
 from ml.training.train import BASELINE, TrainingResult
 
-DEFAULT_TRACKING_URI = "http://127.0.0.1:5001"
-DEFAULT_EXPERIMENT = "lead-conversion"
-DEFAULT_REGISTERED_MODEL = "revintel-lead-conversion"
 MODEL_ARTIFACT = "model"
 INPUT_EXAMPLE_ROWS = 5
 REGISTERED_MODEL_DESCRIPTION = (
@@ -70,29 +66,11 @@ SKOPS_TRUSTED_TYPES = {
 }
 
 
-class TrackingUnavailableError(RuntimeError):
-    """The MLflow tracking server cannot be reached."""
-
-
 @dataclass(frozen=True)
 class TrackingSummary:
     experiment_id: str
     session_run_id: str
     versions: dict[str, str]  # candidate -> registered model version
-
-
-def require_tracking_server(tracking_uri: str, timeout: float = 3.0) -> None:
-    """Fail fast (before training) when an HTTP tracking server is not reachable."""
-    if not tracking_uri.startswith(("http://", "https://")):
-        return
-    try:
-        with urllib.request.urlopen(f"{tracking_uri.rstrip('/')}/health", timeout=timeout):
-            pass
-    except (urllib.error.URLError, OSError) as exc:
-        raise TrackingUnavailableError(
-            f"MLflow tracking server at {tracking_uri} is not reachable ({exc}). "
-            "Start it with scripts/start_mlflow.sh, or train without --track."
-        ) from exc
 
 
 # --- model signature --------------------------------------------------------------------------

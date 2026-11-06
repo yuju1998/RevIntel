@@ -36,6 +36,14 @@ from ml.training.dataset import (
     features_and_label,
     load_feature_table,
 )
+from ml.training.mlflow_config import (
+    DEFAULT_EXPERIMENT,
+    DEFAULT_TRACKING_URI,
+    TrackingUnavailableError,
+    default_registered_model,
+    default_tracking_uri,
+    require_tracking_server,
+)
 from ml.training.pipelines import (
     LOGISTIC_REGRESSION_PARAMS,
     XGBOOST_DEPTHS,
@@ -236,27 +244,24 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     parser.add_argument(
         "--tracking-uri",
-        default=os.environ.get("MLFLOW_TRACKING_URI", "http://127.0.0.1:5001"),
-        help="MLflow tracking server (default: $MLFLOW_TRACKING_URI or http://127.0.0.1:5001)",
+        default=default_tracking_uri(),
+        help=f"MLflow tracking server (default: $MLFLOW_TRACKING_URI or {DEFAULT_TRACKING_URI})",
     )
-    parser.add_argument("--experiment", default="lead-conversion")
-    parser.add_argument(
-        "--registered-model",
-        default=os.environ.get("MLFLOW_MODEL_NAME", "revintel-lead-conversion"),
-    )
+    parser.add_argument("--experiment", default=DEFAULT_EXPERIMENT)
+    parser.add_argument("--registered-model", default=default_registered_model())
     args = parser.parse_args(argv)
 
     started = time.perf_counter()
     if args.track:
-        # Imported only when tracking is requested; checked before any training.
+        # Checked before any training; MLflow is imported only when tracking is requested.
+        try:
+            require_tracking_server(args.tracking_uri)
+        except TrackingUnavailableError as exc:
+            print(f"Error: {exc} To train without MLflow, omit --track.", file=sys.stderr)
+            return 2
         os.environ.setdefault("MLFLOW_DISABLE_AGENT_HINT", "1")
         from ml.training import tracking
 
-        try:
-            tracking.require_tracking_server(args.tracking_uri)
-        except tracking.TrackingUnavailableError as exc:
-            print(f"Error: {exc}", file=sys.stderr)
-            return 2
     try:
         table = load_feature_table(args.features)
     except (FileNotFoundError, FeatureSchemaError) as exc:
