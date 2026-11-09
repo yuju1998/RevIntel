@@ -7,10 +7,11 @@ For each lead, T = created_at + k * cadence (k = 1, 2, ...). A snapshot is kept 
 1. its label window is observed: T + 30d <= as_of;
 2. the lead is active at T: T < terminal time (converted_at, or the disqualification
    time from the synthetic terminal-time convention); open leads are always active;
-3. its outcome is observable: the window ends within the lead's observation horizon
-   (T + 30d <= observation end), or a terminal event at or before the observation end
-   already resolved it (T < terminal <= T + 30d). Still-open leads past the horizon are
-   censored, not negatives.
+3. its whole label window is within the lead's observation horizon:
+   T + 30d <= observation end. Past that the snapshot is censored, whatever happens to the
+   lead later: inclusion never depends on a conversion or disqualification after T.
+   Keeping a censored snapshot only when the lead later converts or is disqualified would
+   select rows on their outcome and inflate the positive rate at those ages.
 
 Label: converted_at in (T, T + 30d].
 """
@@ -45,8 +46,7 @@ class SnapshotPolicy:
             "as_of": self.as_of.isoformat(),
             "max_lead_age_days": self.max_lead_age_days,
             "rule": (
-                "T + 30d <= as_of AND T < terminal time (if any) AND "
-                "(T + 30d <= observation end OR T < terminal <= min(T + 30d, observation end))"
+                "T + 30d <= as_of AND T < terminal time (if any) AND T + 30d <= observation end"
             ),
         }
 
@@ -72,18 +72,10 @@ def lead_timeline(leads: pd.DataFrame, policy: SnapshotPolicy) -> pd.DataFrame:
     ).apply(lambda column: column.dt.as_unit("us"))
 
 
-@dataclass(frozen=True)
-class Snapshots:
-    frame: pd.DataFrame
-    # Terminal events inside the label window but after the observation end: excluded.
-    terminal_after_horizon_excluded: int
-
-
-def build_snapshots(leads: pd.DataFrame, policy: SnapshotPolicy) -> Snapshots:
+def build_snapshots(leads: pd.DataFrame, policy: SnapshotPolicy) -> pd.DataFrame:
     """Lead rows repeated once per eligible T, with `prediction_timestamp`, `k` and the label.
 
-    Rows are sorted by (prediction_timestamp, lead_id). `resolved_past_horizon` marks
-    snapshots kept only because a terminal event resolved the outcome.
+    Rows are sorted by (prediction_timestamp, lead_id).
     """
     leads = leads.reset_index(drop=True)
     timeline = lead_timeline(leads, policy)
@@ -101,20 +93,11 @@ def build_snapshots(leads: pd.DataFrame, policy: SnapshotPolicy) -> Snapshots:
     observed_window = window_end <= policy.as_of
     active = terminal.isna() | (t < terminal)
     in_horizon = window_end <= observation_end
-    terminal_in_window = terminal.notna() & (t < terminal) & (terminal <= window_end)
-    resolved = terminal_in_window & (terminal <= observation_end)
-    candidate = observed_window & active & ~in_horizon
-    keep = observed_window & active & (in_horizon | resolved)
+    keep = observed_window & active & in_horizon
 
     converted = snaps["converted_at"]
     snaps["prediction_timestamp"] = t
     snaps["k"] = k
     snaps[LABEL] = (converted.notna() & (t < converted) & (converted <= window_end)).astype(bool)
-    snaps["resolved_past_horizon"] = ~in_horizon
     frame = snaps.loc[keep].sort_values(["prediction_timestamp", "lead_id"], kind="stable")
-    return Snapshots(
-        frame=frame.reset_index(drop=True),
-        terminal_after_horizon_excluded=int(
-            (candidate & terminal_in_window & (terminal > observation_end)).sum()
-        ),
-    )
+    return frame.reset_index(drop=True)

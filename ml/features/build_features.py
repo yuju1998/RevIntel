@@ -121,15 +121,13 @@ def build(
         activities = load_lead_activities(connection)
     progress(f"  loaded {len(leads):,} leads, {len(activities):,} lead activities (read-only)")
 
-    snapshots = build_snapshots(leads, policy)
-    frame = snapshots.frame
+    frame = build_snapshots(leads, policy)
     progress(f"  snapshots: {len(frame):,}")
     table = compute_features(frame, activities)
     table[LABEL] = frame[LABEL].to_numpy()
     validate_features(table, leads, policy)
 
     statistics = feature_statistics(table, frame)
-    statistics["terminal_after_horizon_excluded"] = snapshots.terminal_after_horizon_excluded
     statistics["availability"] = availability_exclusions(frame, activities)
     statistics["build_seconds"] = round(time.perf_counter() - started, 2)
     metadata = {
@@ -179,10 +177,6 @@ def _format(result: FeatureBuild) -> str:
         f"Rows: {stats['rows']:,} snapshots over {stats['leads']:,} leads "
         f"(per lead {stats['snapshots_per_lead']})",
         f"Positive rate ({LABEL}): {stats['positive_rate']}",
-        f"Kept past the observation horizon (terminal outcome resolved): "
-        f"{stats['resolved_past_horizon']}",
-        f"Excluded, terminal after the observation horizon: "
-        f"{stats['terminal_after_horizon_excluded']}",
         f"Availability: {stats['availability']}",
         "Numeric features (mean / p50 / p95 / null / zero / AUC):",
         *(

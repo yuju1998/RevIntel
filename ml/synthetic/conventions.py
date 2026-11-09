@@ -45,7 +45,6 @@ def lead_terminal_time(
 def lead_observation_end(created_at: datetime, max_lead_age_days: int) -> datetime:
     """The last moment the generator simulated this lead (see OBSERVATION_END_CONVENTION).
 
-    A label window ending later is unobservable unless a terminal event at or before this
-    time already resolved the outcome.
+    A label window ending later is unobservable, so its snapshot is censored.
     """
     return created_at + timedelta(days=max_lead_age_days)

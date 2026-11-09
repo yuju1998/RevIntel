@@ -7,6 +7,13 @@ tracking will move to MLflow. For how the features, the split and the training w
 **Task:** at prediction time T, predict whether a lead converts in `(T, T + 30d]`
 (`converted_within_30d`).
 
+> **Pending retraining:** these results and the registered models come from feature table
+> `7d9a14ed…f026c6`, built under the earlier snapshot policy. That policy also kept
+> snapshots aged 154–175 days when a terminal event fell inside the censored label window,
+> which selected those rows on their outcome. The current policy and
+> `data/processed/lead_features.parquet` (`features_sha256` `3c4cc613…687b8c`, 342,044
+> snapshots, 4.33% positive) no longer do. Everything below describes the earlier table.
+
 ## Data
 
 | | |

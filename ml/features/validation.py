@@ -78,8 +78,7 @@ def validate_features(table: pd.DataFrame, leads: pd.DataFrame, policy: Snapshot
     check(((t - joined["created_at"]) % policy.cadence == pd.Timedelta(0)).all(), "T off-grid")
     check((t > joined["created_at"]).all(), "T at or before created_at")
     check((terminal.isna() | (t < terminal)).all(), "snapshot after the lead's terminal time")
-    resolved = terminal.notna() & (terminal <= window_end) & (terminal <= observation_end)
-    check(((window_end <= observation_end) | resolved).all(), "unobservable label window")
+    check((window_end <= observation_end).all(), "unobservable label window")
     expected = converted.notna() & (t < converted) & (converted <= window_end)
     check((expected == joined[LABEL]).all(), "label mismatch")
 
@@ -148,7 +147,6 @@ def feature_statistics(table: pd.DataFrame, snapshots: pd.DataFrame) -> dict[str
                 )
             },
         }
-    past_horizon = snapshots["resolved_past_horizon"]
     return {
         "rows": len(table),
         "leads": int(per_lead.size),
@@ -162,10 +160,6 @@ def feature_statistics(table: pd.DataFrame, snapshots: pd.DataFrame) -> dict[str
             int(k): _r(v) for k, v in label.groupby(snapshots["k"]).mean().items()
         },
         "positive_rate_by_month": {str(m): _r(v) for m, v in by_month.mean().items()},
-        "resolved_past_horizon": {
-            "rows": int(past_horizon.sum()),
-            "positive_rate": _r(label[past_horizon].mean()) if past_horizon.any() else None,
-        },
         "numeric_features": numeric,
         "categorical_features": categorical,
     }
