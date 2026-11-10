@@ -56,5 +56,5 @@ def features_at(
 
 def snapshot_labels(lead: dict[str, Any], policy: SnapshotPolicy) -> dict[int, bool]:
     """k -> label for every kept snapshot of one lead."""
-    frame = build_snapshots(leads_frame([lead]), policy).frame
+    frame = build_snapshots(leads_frame([lead]), policy)
     return dict(zip(frame["k"].tolist(), frame[LABEL].tolist(), strict=True))

@@ -47,7 +47,7 @@ def feature_inputs(small_dataset: SyntheticDataset) -> FeatureInputs:
     leads = leads_frame(small_dataset.leads)
     activities = activities_frame(small_dataset.activities)
     policy = SnapshotPolicy(small_dataset.config.as_of, small_dataset.config.max_lead_age_days)
-    snapshots = build_snapshots(leads, policy).frame
+    snapshots = build_snapshots(leads, policy)
     return FeatureInputs(
         leads, activities, policy, snapshots, compute_features(snapshots, activities)
     )

@@ -868,10 +868,12 @@ For each lead, `T = created_at + k × 7 days` (`k ≥ 1`). A snapshot exists onl
 2. the lead is active at `T`: `T < converted_at` for converted leads,
    `T < lead_terminal_time(...)` for disqualified leads, always for open leads. A
    disqualified lead is never a negative after its disqualification;
-3. the outcome is observable: `T + 30d <= lead_observation_end(...)`, **or** a terminal
-   event already resolved it with `T < terminal_time <= T + 30d` and
-   `terminal_time <= lead_observation_end(...)`. Still-open leads whose window passes the
-   observation end are dropped (censored), not labelled negative.
+3. `T + 30d <= lead_observation_end(...)` (the label window is within the observation
+   horizon). Past that the snapshot is dropped (censored), not labelled negative.
+
+These rules apply to open, converted and disqualified leads alike, so inclusion never
+depends on a conversion or disqualification after `T`. With the 180-day horizon and the
+7-day cadence, the oldest possible snapshot is at age 147 days (`k = 21`).
 
 Label `converted_within_30d`: `converted_at` in `(T, T + 30d]`.
 
