@@ -26,6 +26,8 @@ SAFE_DATABASE_SUFFIXES = ("_test", "_ml")
 PROTECTED_USER_EMAIL = "admin@example.com"
 PROTECTED_ACCOUNT_NAME = "RevIntel Co"
 CRM_TABLES = ("activities", "notes", "opportunities", "contacts", "leads", "accounts", "users")
+# Derived from CRM rows (scores reference leads), so a reset removes them as well.
+DERIVED_TABLES = ("lead_predictions",)
 ALEMBIC_INI = Path(__file__).resolve().parents[2] / "alembic.ini"
 
 
@@ -98,8 +100,9 @@ def write_dataset(
                         f"Database {name!r} already has CRM rows {existing}; pass --reset to "
                         "replace them."
                     )
-                connection.execute(text(f"TRUNCATE {', '.join(CRM_TABLES)}"))
-                progress(f"  reset: truncated CRM tables in {name}")
+                tables = ", ".join((*DERIVED_TABLES, *CRM_TABLES))
+                connection.execute(text(f"TRUNCATE {tables}"))
+                progress(f"  reset: truncated CRM and derived tables in {name}")
             for table_name, rows in dataset.tables():
                 table = Base.metadata.tables[table_name]
                 for start in range(0, len(rows), batch_size):

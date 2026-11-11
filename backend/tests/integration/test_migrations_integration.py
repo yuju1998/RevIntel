@@ -12,8 +12,10 @@ pytestmark = pytest.mark.integration
 
 PHASE_1_REVISION = "d9abf148e9ed"
 PHASE_1_TABLES = {"users", "accounts", "contacts", "leads", "opportunities"}
+PHASE_2_REVISION = "9d4d176a3488"
 PHASE_2_TABLES = {"activities", "notes"}
-ALL_TABLES = PHASE_1_TABLES | PHASE_2_TABLES
+PHASE_3_TABLES = {"lead_predictions"}
+ALL_TABLES = PHASE_1_TABLES | PHASE_2_TABLES | PHASE_3_TABLES
 
 
 @pytest.fixture
@@ -59,6 +61,11 @@ def test_each_migration_applies_and_reverts_independently(
     command.upgrade(alembic_config, "head")
     assert _tables(db_engine) == ALL_TABLES
 
+    # Reverting migration 3 leaves the Phase 1-2 schema intact.
+    command.downgrade(alembic_config, "-1")
+    assert _tables(db_engine) == PHASE_1_TABLES | PHASE_2_TABLES
+    assert _version(db_engine) == PHASE_2_REVISION
+
     # Reverting migration 2 leaves the Phase 1 schema intact.
     command.downgrade(alembic_config, "-1")
     assert _tables(db_engine) == PHASE_1_TABLES
@@ -83,7 +90,10 @@ def test_migrations_create_documented_indexes(db_engine: Engine) -> None:
         for constraint in inspector.get_unique_constraints(table)
     }
 
-    assert unique_constraints == {"uq_users_email"}
+    assert unique_constraints == {
+        "uq_users_email",
+        "uq_lead_predictions_lead_id_timestamp_model",
+    }
     assert indexes == {
         "ix_accounts_owner_id",
         "ix_contacts_account_id",
@@ -103,6 +113,7 @@ def test_migrations_create_documented_indexes(db_engine: Engine) -> None:
         "ix_notes_lead_id",
         "ix_notes_opportunity_id",
         "ix_notes_author_id",
+        "ix_lead_predictions_prediction_timestamp",
     }
 
 

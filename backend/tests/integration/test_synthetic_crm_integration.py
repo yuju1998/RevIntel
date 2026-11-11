@@ -83,6 +83,27 @@ def test_reset_with_the_same_seed_reproduces_identical_rows(
     assert _checksum(db_engine) == first
 
 
+def test_reset_also_removes_lead_scores(
+    dataset: SyntheticDataset, migrated_database: str, db_engine: Engine, clean_tables: None
+) -> None:
+    write_dataset(dataset, migrated_database)
+    with db_engine.begin() as connection:
+        connection.execute(
+            text(
+                "INSERT INTO lead_predictions (id, lead_id, prediction_timestamp, "
+                "conversion_probability, lead_tier, model_name, model_version, features) "
+                "SELECT gen_random_uuid(), id, now(), 0.1, 'WARM', 'm', '1', '{}' "
+                "FROM leads LIMIT 3"
+            )
+        )
+
+    write_dataset(dataset, migrated_database, reset=True)
+
+    with db_engine.connect() as connection:
+        scores = connection.execute(text("SELECT count(*) FROM lead_predictions")).scalar_one()
+    assert scores == 0
+
+
 def test_protected_development_data_blocks_write_and_reset(
     dataset: SyntheticDataset, migrated_database: str, db_engine: Engine, clean_tables: None
 ) -> None:

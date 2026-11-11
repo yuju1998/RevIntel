@@ -17,6 +17,7 @@ from mlflow.types import TensorSpec  # noqa: E402
 
 from ml.features.build_features import FeatureBuild, write_outputs  # noqa: E402
 from ml.features.feature_spec import ACTIVE_FEATURES  # noqa: E402
+from ml.model_contract import to_wire_frame  # noqa: E402
 from ml.training import tracking, train  # noqa: E402
 from ml.training.dataset import FeatureTable  # noqa: E402
 from ml.training.train import TrainingResult  # noqa: E402
@@ -101,7 +102,7 @@ def test_registered_model_serves_probabilities(
     training_table: FeatureTable,
 ) -> None:
     _, summary = logged
-    rows = tracking.to_wire_frame(training_table.frame.iloc[trained.split.test[:4]])
+    rows = to_wire_frame(training_table.frame.iloc[trained.split.test[:4]])
     rows.loc[0, "industry"] = None
     rows.loc[1, "industry"] = "Aerospace"
     rows.loc[2, ["company_size", "days_since_last_activity"]] = np.nan

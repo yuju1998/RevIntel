@@ -50,3 +50,9 @@ class ActivityDirection(StrEnum):
     INBOUND = "INBOUND"
     OUTBOUND = "OUTBOUND"
     INTERNAL = "INTERNAL"
+
+
+class LeadTier(StrEnum):
+    HOT = "HOT"
+    WARM = "WARM"
+    COLD = "COLD"

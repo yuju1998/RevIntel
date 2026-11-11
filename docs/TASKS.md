@@ -27,7 +27,7 @@
 - [x] Model evaluation
 - [x] MLflow
 - [x] Model registry
-- [ ] Online scoring
+- [x] Online scoring
 
 ## Phase 3 — MLOps
 - [ ] Airflow

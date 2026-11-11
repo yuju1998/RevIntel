@@ -1,5 +1,8 @@
 import io
+import os
 import re
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -79,8 +82,9 @@ def test_migration_chain_is_linear(alembic_config: Config) -> None:
     script = ScriptDirectory.from_config(alembic_config)
     chain = [rev.revision for rev in reversed(list(script.walk_revisions()))]
 
-    assert chain == ["d9abf148e9ed", "9d4d176a3488"]
+    assert chain == ["d9abf148e9ed", "9d4d176a3488", "8d37bd7e6458"]
     assert script.get_revision("9d4d176a3488").down_revision == "d9abf148e9ed"
+    assert script.get_revision("8d37bd7e6458").down_revision == "9d4d176a3488"
 
 
 def test_upgrade_sql_creates_only_implemented_tables(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -95,6 +99,7 @@ def test_upgrade_sql_creates_only_implemented_tables(monkeypatch: pytest.MonkeyP
         "opportunities",
         "activities",
         "notes",
+        "lead_predictions",
     }
     assert "vector" not in sql.lower()
 
@@ -104,13 +109,27 @@ def test_second_migration_only_adds_activities_and_notes(
 ) -> None:
     monkeypatch.setenv("DATABASE_URL", UNREACHABLE_DATABASE_URL)
     buffer = io.StringIO()
-    command.upgrade(Config(str(ALEMBIC_INI), output_buffer=buffer), "d9abf148e9ed:head", sql=True)
+    config = Config(str(ALEMBIC_INI), output_buffer=buffer)
+    command.upgrade(config, "d9abf148e9ed:9d4d176a3488", sql=True)
     sql = buffer.getvalue()
 
     assert set(re.findall(r"CREATE TABLE (\w+)", sql)) == {"activities", "notes"}
     assert not re.search(r"(ALTER|DROP) TABLE", sql)
     for name in ("ck_activities_activity_type", "ck_activities_activity_direction"):
         assert len(re.findall(rf"CONSTRAINT {name} ", sql)) == 1
+
+
+def test_third_migration_only_adds_lead_predictions(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("DATABASE_URL", UNREACHABLE_DATABASE_URL)
+    buffer = io.StringIO()
+    config = Config(str(ALEMBIC_INI), output_buffer=buffer)
+    command.upgrade(config, "9d4d176a3488:head", sql=True)
+    sql = buffer.getvalue()
+
+    assert set(re.findall(r"CREATE TABLE (\w+)", sql)) == {"lead_predictions"}
+    assert not re.search(r"(ALTER|DROP) TABLE", sql)
+    assert len(re.findall(r"CONSTRAINT ck_lead_predictions_lead_tier ", sql)) == 1
+    assert "ON DELETE CASCADE" in sql
 
 
 def test_upgrade_sql_names_each_constraint_exactly_once(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -126,6 +145,7 @@ def test_upgrade_sql_names_each_constraint_exactly_once(monkeypatch: pytest.Monk
         "opportunity_stage",
         "activity_type",
         "activity_direction",
+        "lead_tier",
     } & set(names)
     for name in (
         "uq_users_email",
@@ -143,6 +163,7 @@ def test_downgrade_sql_drops_tables_in_reverse_dependency_order(
 
     dropped = [name for name in re.findall(r"DROP TABLE (\w+)", sql) if name != "alembic_version"]
     assert dropped == [
+        "lead_predictions",
         "notes",
         "activities",
         "opportunities",
@@ -151,3 +172,21 @@ def test_downgrade_sql_drops_tables_in_reverse_dependency_order(
         "accounts",
         "users",
     ]
+
+
+def test_migration_environment_does_not_need_the_ml_package() -> None:
+    # Alembic loads settings and models; neither may import `ml` (pytest's pythonpath
+    # would otherwise hide such an import). Run from backend/ so `ml` is not importable.
+    backend = ALEMBIC_INI.parent / "backend"
+    env = {k: v for k, v in os.environ.items() if k != "PYTHONPATH"}
+    code = (
+        "import importlib.util, app.core.config, app.models; "
+        "print(importlib.util.find_spec('ml'))"
+    )
+
+    result = subprocess.run(
+        [sys.executable, "-c", code], cwd=backend, env=env, capture_output=True, text=True
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == "None"

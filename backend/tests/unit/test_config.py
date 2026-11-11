@@ -27,8 +27,9 @@ def test_loads_settings_from_env_file(tmp_path: Path) -> None:
         f"DATABASE_URL={VALID_DATABASE_URL}\n"
         f"REDIS_URL={VALID_REDIS_URL}\n"
         "DB_POOL_SIZE=7\n"
+        "MLFLOW_TRACKING_URI=http://mlflow.internal:5001\n"
         # Keys for features that are not built yet must not break loading.
-        "MLFLOW_TRACKING_URI=http://localhost:5001\n"
+        "EMBEDDING_PROVIDER=local\n"
     )
 
     settings = Settings(_env_file=env_file)
@@ -38,7 +39,9 @@ def test_loads_settings_from_env_file(tmp_path: Path) -> None:
     assert str(settings.database_url) == VALID_DATABASE_URL
     assert str(settings.redis_url) == VALID_REDIS_URL
     assert settings.db_pool_size == 7
-    assert not hasattr(settings, "mlflow_tracking_uri")
+    assert settings.mlflow_tracking_uri == "http://mlflow.internal:5001"
+    assert settings.mlflow_model_name == "revintel-lead-conversion"
+    assert not hasattr(settings, "embedding_provider")
 
 
 def test_environment_variables_override_env_file(
@@ -260,3 +263,11 @@ def test_database_settings_do_not_require_jwt_secret(monkeypatch: pytest.MonkeyP
     monkeypatch.setenv("DATABASE_URL", VALID_DATABASE_URL)
 
     assert DatabaseSettings().database_url is not None
+
+
+def test_mlflow_defaults_match_the_ml_tooling() -> None:
+    from app.core import config
+    from ml.training import mlflow_config
+
+    assert config.DEFAULT_MLFLOW_TRACKING_URI == mlflow_config.DEFAULT_TRACKING_URI
+    assert config.DEFAULT_MLFLOW_MODEL_NAME == mlflow_config.DEFAULT_REGISTERED_MODEL

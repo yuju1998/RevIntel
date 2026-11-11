@@ -158,7 +158,9 @@ version 2: validation_status=approved
 Version 1 is kept in the registry.
 ```
 
-`models:/revintel-lead-conversion@champion` then resolves to the new version.
+`models:/revintel-lead-conversion@champion` then resolves to the new version. The API
+resolves `champion` once per process (`POST /api/v1/leads/{lead_id}/scores`), so restart
+it after a promotion so it scores with the new version.
 
 **How the tags and aliases behave:**
 - **Which version is current:** only the `champion` alias says this.
