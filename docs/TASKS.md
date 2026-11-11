@@ -30,9 +30,9 @@
 - [x] Online scoring
 
 ## Phase 3 — MLOps
-- [ ] Airflow
-- [ ] Weekly DAG
-- [ ] Candidate registration
+- [x] Airflow
+- [x] Weekly DAG
+- [x] Candidate registration
 
 ## Phase 4 — AI
 - [ ] pgvector schema

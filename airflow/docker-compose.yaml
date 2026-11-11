@@ -1,0 +1,151 @@
+# Local Airflow 3.4 for RevIntel (development only). See docs/AIRFLOW.md.
+#
+# Adapted from the official Airflow 3.4.0 docker-compose.yaml: LocalExecutor (no Celery,
+# Redis or worker), no triggerer, the default SimpleAuthManager, and a dedicated metadata
+# database container (separate from revintel, revintel_test, revintel_ml and mlflow).
+# RevIntel's PostgreSQL and the MLflow server run on the host and are reached through
+# host.docker.internal.
+name: revintel-airflow
+
+x-airflow-common:
+  &airflow-common
+  build:
+    context: ../requirements
+    dockerfile: ../airflow/Dockerfile
+  image: revintel-airflow:3.4.0-python3.14
+  environment:
+    &airflow-common-env
+    AIRFLOW__CORE__EXECUTOR: LocalExecutor
+    AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg://airflow:airflow@airflow-postgres/airflow
+    AIRFLOW__CORE__FERNET_KEY: ${FERNET_KEY:-}
+    AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: "true"
+    AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+    AIRFLOW__CORE__EXECUTION_API_SERVER_URL: http://airflow-apiserver:8080/execution/
+    AIRFLOW__API_AUTH__JWT_SECRET: ${AIRFLOW__API_AUTH__JWT_SECRET:-revintel-local-airflow-jwt-secret}
+    AIRFLOW__API_AUTH__JWT_ISSUER: airflow
+    AIRFLOW__SCHEDULER__ENABLE_HEALTH_CHECK: "true"
+    # SimpleAuthManager (Airflow 3 default): one local `admin` user. Its password is
+    # generated on first start and kept in the (gitignored) config directory.
+    AIRFLOW__CORE__SIMPLE_AUTH_MANAGER_USERS: admin:admin
+    AIRFLOW__CORE__SIMPLE_AUTH_MANAGER_PASSWORDS_FILE: /opt/airflow/config/simple_auth_manager_passwords.json.generated
+    AIRFLOW_CONFIG: /opt/airflow/config/airflow.cfg
+    # RevIntel pipeline (tasks run in REVINTEL_PYTHON, an isolated virtualenv).
+    REVINTEL_PYTHON: /opt/revintel-venv/bin/python
+    REVINTEL_PIPELINE_ROOT: /opt/revintel/pipeline_runs
+    REVINTEL_SOURCE_MANIFEST: /opt/revintel/src/data/raw/synthetic_crm_manifest.json
+    SYNTHETIC_DATABASE_URL: ${SYNTHETIC_DATABASE_URL:?set SYNTHETIC_DATABASE_URL in airflow/.env}
+    MLFLOW_TRACKING_URI: ${MLFLOW_TRACKING_URI:-http://host.docker.internal:5001}
+    MLFLOW_MODEL_NAME: ${MLFLOW_MODEL_NAME:-revintel-lead-conversion}
+    MLFLOW_DISABLE_AGENT_HINT: "1"
+  volumes:
+    - ./dags:/opt/airflow/dags
+    - ./logs:/opt/airflow/logs
+    - ./config:/opt/airflow/config
+    - ./tests:/opt/airflow/tests:ro
+    # RevIntel code (read-only; always the current checkout) and the source manifest.
+    - ../ml:/opt/revintel/src/ml:ro
+    - ../backend:/opt/revintel/src/backend:ro
+    - ../.git:/opt/revintel/src/.git:ro
+    - ../data/raw:/opt/revintel/src/data/raw:ro
+    # Shared per-run artifact directories (a local stand-in for object storage).
+    - ../artifacts/pipeline_runs:/opt/revintel/pipeline_runs
+  user: "${AIRFLOW_UID:-50000}:0"
+  extra_hosts:
+    - "host.docker.internal:host-gateway"
+  depends_on:
+    &airflow-common-depends-on
+    airflow-postgres:
+      condition: service_healthy
+
+services:
+  airflow-postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: airflow
+      POSTGRES_PASSWORD: airflow
+      POSTGRES_DB: airflow
+    volumes:
+      - airflow-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "airflow"]
+      interval: 10s
+      retries: 5
+      start_period: 5s
+    restart: always
+
+  airflow-apiserver:
+    <<: *airflow-common
+    command: api-server
+    ports:
+      - "8080:8080"
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:8080/api/v2/monitor/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    restart: always
+    depends_on:
+      <<: *airflow-common-depends-on
+      airflow-init:
+        condition: service_completed_successfully
+
+  airflow-scheduler:
+    <<: *airflow-common
+    command: scheduler
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:8974/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    restart: always
+    depends_on:
+      <<: *airflow-common-depends-on
+      airflow-init:
+        condition: service_completed_successfully
+
+  airflow-dag-processor:
+    <<: *airflow-common
+    command: dag-processor
+    healthcheck:
+      test: ["CMD-SHELL", 'airflow jobs check --job-type DagProcessorJob --hostname "$${HOSTNAME}"']
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    restart: always
+    depends_on:
+      <<: *airflow-common-depends-on
+      airflow-init:
+        condition: service_completed_successfully
+
+  airflow-init:
+    <<: *airflow-common
+    entrypoint: /bin/bash
+    command:
+      - -c
+      - |
+        mkdir -p /opt/airflow/{logs,dags,config} /opt/revintel/pipeline_runs
+        /entrypoint airflow version
+        /entrypoint airflow config list >/dev/null
+        chown -R "${AIRFLOW_UID:-50000}:0" /opt/airflow/{logs,dags,config} /opt/revintel/pipeline_runs
+    environment:
+      <<: *airflow-common-env
+      _AIRFLOW_DB_MIGRATE: "true"
+    user: "0:0"
+
+  airflow-cli:
+    <<: *airflow-common
+    profiles:
+      - debug
+    environment:
+      <<: *airflow-common-env
+      CONNECTION_CHECK_MAX_COUNT: "0"
+    command:
+      - bash
+      - -c
+      - airflow
+
+volumes:
+  airflow-postgres-data:

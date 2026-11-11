@@ -20,10 +20,12 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+import joblib
 import numpy as np
 import pandas as pd
 import sklearn
 import xgboost
+from sklearn.pipeline import Pipeline
 
 from ml.evaluation.metrics import THRESHOLD_RULE, constant_scores, evaluate, select_threshold
 from ml.features.build_features import DEFAULT_OUTPUT as DEFAULT_FEATURES
@@ -53,11 +55,12 @@ from ml.training.pipelines import (
     build_logistic_regression,
     fit_xgboost,
 )
-from ml.training.splits import ChronologicalSplit, purged_chronological_split
+from ml.training.splits import SPLITS, ChronologicalSplit, purged_chronological_split
 
 ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_OUTPUT_DIR = ROOT / "artifacts" / "models" / "lead_conversion"
 REPORT_FILE = "evaluation_report.json"
+FIT_FILE = "fit.json"
 BASELINE = "baseline"
 
 
@@ -68,26 +71,35 @@ class TrainingResult:
     report: dict[str, Any]
 
 
-def train_candidates(
+@dataclass(frozen=True)
+class FittedCandidates:
+    """Fitted pipelines and the split they were fitted on (before thresholds and metrics)."""
+
+    split: ChronologicalSplit
+    pipelines: dict[str, Pipeline]
+    training_rate: float
+    xgboost: dict[str, Any]  # chosen depth, best iteration and the search settings
+
+
+def _parts(
+    table: FeatureTable, split: ChronologicalSplit
+) -> dict[str, tuple[pd.DataFrame, np.ndarray]]:
+    X, y = features_and_label(table.frame.reset_index(drop=True))
+    return {name: (X.iloc[split.rows(name)], y[split.rows(name)]) for name in SPLITS}
+
+
+def fit_candidates(
     table: FeatureTable,
     *,
     xgboost_depths: tuple[int, ...] = XGBOOST_DEPTHS,
     xgboost_max_estimators: int = XGBOOST_MAX_ESTIMATORS,
     xgboost_early_stopping_rounds: int = XGBOOST_EARLY_STOPPING_ROUNDS,
-) -> TrainingResult:
-    frame = table.frame.reset_index(drop=True)
-    X, y = features_and_label(frame)
-    split = purged_chronological_split(frame["prediction_timestamp"])
-    split_metadata = split.metadata(frame)
-
-    def part(name: str) -> tuple[pd.DataFrame, np.ndarray]:
-        rows = split.rows(name)
-        return X.iloc[rows], y[rows]
-
-    X_train, y_train = part("train")
-    X_validation, y_validation = part("validation")
-
-    # 1. Fit on train (XGBoost also uses validation for depth and early stopping).
+) -> FittedCandidates:
+    """Fit both candidates on train (XGBoost uses validation for depth and early stopping)."""
+    split = purged_chronological_split(table.frame.reset_index(drop=True)["prediction_timestamp"])
+    parts = _parts(table, split)
+    X_train, y_train = parts["train"]
+    X_validation, y_validation = parts["validation"]
     logistic = build_logistic_regression().fit(X_train, y_train)
     xgb = fit_xgboost(
         X_train,
@@ -98,16 +110,98 @@ def train_candidates(
         max_estimators=xgboost_max_estimators,
         early_stopping_rounds=xgboost_early_stopping_rounds,
     )
-    pipelines = {"logistic_regression": logistic, "xgboost": xgb.pipeline}
-    training_rate = float(y_train.mean())
+    return FittedCandidates(
+        split=split,
+        pipelines={"logistic_regression": logistic, "xgboost": xgb.pipeline},
+        training_rate=float(y_train.mean()),
+        xgboost={
+            "max_depth": xgb.max_depth,
+            "best_iteration": xgb.best_iteration,
+            "max_estimators": xgboost_max_estimators,
+            "early_stopping_rounds": xgboost_early_stopping_rounds,
+            "depths_tried": list(xgboost_depths),
+            "validation_average_precision_by_depth": {
+                str(k): v for k, v in xgb.validation_average_precision_by_depth.items()
+            },
+        },
+    )
+
+
+def save_fitted(fitted: FittedCandidates, table: FeatureTable, directory: Path) -> None:
+    """Persist fitted pipelines (joblib: load only this project's own artifacts)."""
+    directory.mkdir(parents=True, exist_ok=True)
+    for name, pipeline in fitted.pipelines.items():
+        joblib.dump(pipeline, directory / f"{name}.joblib")
+    split = fitted.split.metadata(table.frame.reset_index(drop=True))
+    (directory / FIT_FILE).write_text(
+        json.dumps(
+            {
+                "features_sha256": table.metadata["features_sha256"],
+                "training_rate": fitted.training_rate,
+                "xgboost": fitted.xgboost,
+                "split_row_ids_sha256": {
+                    name: part["row_ids_sha256"] for name, part in split["splits"].items()
+                },
+            },
+            indent=2,
+        )
+        + "\n"
+    )
+
+
+def load_fitted(directory: Path, table: FeatureTable) -> FittedCandidates:
+    """Reload fitted pipelines; the split is recomputed and must match the one fitted on."""
+    saved = json.loads((directory / FIT_FILE).read_text())
+    if saved["features_sha256"] != table.metadata["features_sha256"]:
+        raise FeatureSchemaError("fitted models were trained on a different feature table")
+    frame = table.frame.reset_index(drop=True)
+    split = purged_chronological_split(frame["prediction_timestamp"])
+    hashes = {
+        name: part["row_ids_sha256"] for name, part in split.metadata(frame)["splits"].items()
+    }
+    if hashes != saved["split_row_ids_sha256"]:
+        raise FeatureSchemaError("fitted models were trained on a different split")
+    return FittedCandidates(
+        split=split,
+        pipelines={
+            name: joblib.load(directory / f"{name}.joblib")
+            for name in ("logistic_regression", "xgboost")
+        },
+        training_rate=saved["training_rate"],
+        xgboost=saved["xgboost"],
+    )
+
+
+def train_candidates(
+    table: FeatureTable,
+    *,
+    xgboost_depths: tuple[int, ...] = XGBOOST_DEPTHS,
+    xgboost_max_estimators: int = XGBOOST_MAX_ESTIMATORS,
+    xgboost_early_stopping_rounds: int = XGBOOST_EARLY_STOPPING_ROUNDS,
+) -> TrainingResult:
+    fitted = fit_candidates(
+        table,
+        xgboost_depths=xgboost_depths,
+        xgboost_max_estimators=xgboost_max_estimators,
+        xgboost_early_stopping_rounds=xgboost_early_stopping_rounds,
+    )
+    return evaluate_candidates(table, fitted)
+
+
+def evaluate_candidates(table: FeatureTable, fitted: FittedCandidates) -> TrainingResult:
+    """Thresholds from validation (frozen), then one final evaluation on test."""
+    split, pipelines = fitted.split, fitted.pipelines
+    split_metadata = split.metadata(table.frame.reset_index(drop=True))
+    parts = _parts(table, split)
+    X_validation, y_validation = parts["validation"]
 
     def scores(name: str, features: pd.DataFrame) -> np.ndarray:
         if name == BASELINE:
-            return constant_scores(training_rate, len(features))
+            return constant_scores(fitted.training_rate, len(features))
         return pipelines[name].predict_proba(features)[:, 1]
 
     names = (BASELINE, *pipelines)
-    # 2. Thresholds from validation only; frozen before the test split is touched.
+    # Thresholds from validation only; frozen before the test split is touched.
     thresholds = {
         name: select_threshold(y_validation, scores(name, X_validation)) for name in names
     }
@@ -115,8 +209,8 @@ def train_candidates(
         name: evaluate(y_validation, scores(name, X_validation), thresholds[name].value)
         for name in names
     }
-    # 3. Final evaluation on test with the frozen thresholds.
-    X_test, y_test = part("test")
+    # Final evaluation on test with the frozen thresholds.
+    X_test, y_test = parts["test"]
     test = {name: evaluate(y_test, scores(name, X_test), thresholds[name].value) for name in names}
 
     hyperparameters = {
@@ -129,14 +223,7 @@ def train_candidates(
             "estimator": "xgboost.XGBClassifier",
             "numeric_preprocessing": "float -> native NaN handling (no imputation, no scaling)",
             **XGBOOST_PARAMS,
-            "max_depth": xgb.max_depth,
-            "best_iteration": xgb.best_iteration,
-            "max_estimators": xgboost_max_estimators,
-            "early_stopping_rounds": xgboost_early_stopping_rounds,
-            "depths_tried": list(xgboost_depths),
-            "validation_average_precision_by_depth": {
-                str(k): v for k, v in xgb.validation_average_precision_by_depth.items()
-            },
+            **fitted.xgboost,
         },
     }
     common = {
@@ -181,10 +268,13 @@ def train_candidates(
     report = {
         **{key: common[key] for key in ("source", "feature_spec_version", "split")},
         "feature_spec_fingerprint": common["feature_spec_fingerprint"],
-        "baseline": f"constant probability = training positive rate ({training_rate:.6f})",
+        "baseline": f"constant probability = training positive rate ({fitted.training_rate:.6f})",
         "threshold_rule": THRESHOLD_RULE,
         "thresholds": {name: thresholds[name].value for name in names},
-        "xgboost": {"max_depth": xgb.max_depth, "best_iteration": xgb.best_iteration},
+        "xgboost": {
+            "max_depth": fitted.xgboost["max_depth"],
+            "best_iteration": fitted.xgboost["best_iteration"],
+        },
         "metrics": {name: {"validation": validation[name], "test": test[name]} for name in names},
     }
     return TrainingResult(split=split, models=models, report=report)

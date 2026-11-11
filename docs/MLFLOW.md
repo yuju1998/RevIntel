@@ -32,6 +32,19 @@ The script does the following:
 The URI must use the `postgresql+psycopg` driver because psycopg2 isn't installed. Stop
 the server with Ctrl-C.
 
+**For the Airflow pipeline** (containers reach MLflow through `host.docker.internal`),
+listen on all interfaces and allow that host name; the defaults above are unchanged
+otherwise:
+
+```bash
+MLFLOW_HOST=0.0.0.0 \
+MLFLOW_SERVER_ALLOWED_HOSTS="localhost:*,127.0.0.1:*,host.docker.internal:*" \
+scripts/start_mlflow.sh
+```
+
+`MLFLOW_SERVER_ALLOWED_HOSTS` is MLflow's own setting and replaces its default allow-list,
+so keep `localhost` and `127.0.0.1` in it. See `docs/AIRFLOW.md`.
+
 ## 2. Run tracked training
 
 ```bash
