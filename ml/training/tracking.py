@@ -24,10 +24,8 @@ import sklearn
 import xgboost
 from mlflow import MlflowClient
 from mlflow.exceptions import MlflowException
-from mlflow.models import ModelSignature
-from mlflow.types import ColSpec, Schema, TensorSpec
 
-from ml.features.feature_spec import ACTIVE_FEATURES, FEATURES_BY_NAME
+from ml.model_contract import PYFUNC_PREDICT_FN, model_signature, to_wire_frame
 from ml.training.dataset import FeatureTable
 from ml.training.mlflow_config import DEFAULT_EXPERIMENT, DEFAULT_REGISTERED_MODEL
 from ml.training.train import BASELINE, TrainingResult
@@ -47,7 +45,6 @@ METRICS = {
     "f1": "f1",
     "brier": "brier",
 }
-_WIRE_TYPES = {"categorical": "string", "count": "long", "numeric": "double"}
 # Models are stored with skops (no arbitrary code execution on load); these are the only
 # non-standard types each pipeline contains.
 SKOPS_TRUSTED_TYPES = {
@@ -71,34 +68,6 @@ class TrackingSummary:
     experiment_id: str
     session_run_id: str
     versions: dict[str, str]  # candidate -> registered model version
-
-
-# --- model signature --------------------------------------------------------------------------
-
-
-def model_signature() -> ModelSignature:
-    """Input: the active features in spec order (JSON-friendly types, nullable values allowed).
-    Output: `predict_proba` probabilities, shape (rows, 2) = [P(not converted), P(converted)]."""
-    inputs = Schema(
-        [ColSpec(_WIRE_TYPES[FEATURES_BY_NAME[name].kind], name) for name in ACTIVE_FEATURES]
-    )
-    outputs = Schema([TensorSpec(np.dtype("float64"), (-1, 2), "probabilities")])
-    return ModelSignature(inputs=inputs, outputs=outputs)
-
-
-def to_wire_frame(features: pd.DataFrame) -> pd.DataFrame:
-    """Active features as callers send them: strings, int64 counts, float64 (NaN = missing)."""
-    columns = {}
-    for name in ACTIVE_FEATURES:
-        kind = FEATURES_BY_NAME[name].kind
-        column = features[name].astype(object).where(features[name].notna(), None)
-        if kind == "categorical":
-            columns[name] = column.map(lambda v: None if v is None else str(v))
-        elif kind == "count":
-            columns[name] = column.astype("int64")
-        else:
-            columns[name] = column.astype("float64")
-    return pd.DataFrame(columns).reset_index(drop=True)
 
 
 # --- parameters -------------------------------------------------------------------------------
@@ -241,7 +210,7 @@ def log_candidates(
                     name=MODEL_ARTIFACT,
                     signature=signature,
                     input_example=input_example,
-                    pyfunc_predict_fn="predict_proba",
+                    pyfunc_predict_fn=PYFUNC_PREDICT_FN,
                     pip_requirements=requirements,
                     skops_trusted_types=SKOPS_TRUSTED_TYPES[name],
                     registered_model_name=registered_model,

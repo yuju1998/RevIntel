@@ -28,3 +28,17 @@ class AuthenticationError(DomainError):
 
 class PermissionDeniedError(DomainError):
     """The authenticated user's role is not allowed to perform the action."""
+
+
+class ScoringUnavailableError(DomainError):
+    """The model needed to score a lead cannot be used right now.
+
+    Clients only ever see a generic message; `reason` (MLflow unavailable, contract
+    mismatch, malformed output, ...) is for logs.
+    """
+
+    CLIENT_MESSAGE = "Lead scoring is currently unavailable."
+
+    def __init__(self, reason: str) -> None:
+        super().__init__(self.CLIENT_MESSAGE)
+        self.reason = reason

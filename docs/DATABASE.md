@@ -415,7 +415,8 @@ Scores produced by the lead conversion model. Append-only.
 | `lead_tier` | `VARCHAR(32)` enum `lead_tier` | no | — | `HOT`, `WARM`, `COLD`. Named `lead_tier`, **not** `risk_tier`: high conversion probability is not high risk. |
 | `model_name` | `VARCHAR(128)` | no | — | MLflow registered model name. |
 | `model_version` | `VARCHAR(64)` | no | — | MLflow model version. |
-| `features` | `JSONB` | no | — | Feature values used for this score (audit/debugging). |
+| `features` | `JSONB` | no | — | The exact model input for this score (wire form: strings, integers, floats, `null` for missing), for audit and debugging. |
+| `inference_ms` | `DOUBLE PRECISION` | yes | — | Model inference time in milliseconds (`>= 0`), excluding feature computation and storage. |
 | `created_at` | `TIMESTAMPTZ` | no | `now()` | |
 
 Constraints: `pk_lead_predictions`, `fk_lead_predictions_lead_id_leads`,
@@ -573,6 +574,7 @@ removed explicitly. This is intended while V1 has no soft deletes and no delete 
 | `ck_notes_at_least_one_parent` | notes | at least one of `account_id`, `lead_id`, `opportunity_id` | 2 |
 | `ck_lead_predictions_lead_tier` | lead_predictions | enum values | 3 |
 | `ck_lead_predictions_conversion_probability_range` | lead_predictions | `conversion_probability >= 0 AND conversion_probability <= 1` | 3 |
+| `ck_lead_predictions_inference_ms_non_negative` | lead_predictions | `inference_ms >= 0` | 3 |
 | `ck_document_chunks_document_source_type` | document_chunks | enum values | 4 |
 | `ck_document_chunks_chunk_index_non_negative` | document_chunks | `chunk_index >= 0` | 4 |
 
@@ -929,7 +931,7 @@ listed for its tables.
 |---|---|---|---|
 | 1 ✅ `d9abf148e9ed` | `users`, `accounts`, `contacts`, `leads`, `opportunities` | Enum checks, non-negative checks, `ck_leads_converted_requires_converted_at` | Phase 1 — Backend |
 | 2 ✅ `9d4d176a3488` | `activities`, `notes` | `*_at_least_one_parent` checks, FK indexes incl. `created_by_id` / `author_id` | Phase 1 — Backend |
-| 3 | `lead_predictions` | Idempotency unique constraint (also the `lead_id` index), probability range check | Phase 2 — Data + ML |
+| 3 ✅ `8d37bd7e6458` | `lead_predictions` | Idempotency unique constraint (also the `lead_id` index), probability range check, nullable `inference_ms` | Phase 2 — Data + ML |
 | 4 | `document_chunks` | `CREATE EXTENSION IF NOT EXISTS vector`, explicit composite unique constraint, `chunk_index` check | Phase 4 — AI |
 
 ---
@@ -1072,7 +1074,7 @@ Manual:
 
 ```bash
 alembic upgrade head
-alembic current -v   # 9d4d176a3488 (head); URL printed with the password masked
+alembic current -v   # 8d37bd7e6458 (head); URL printed with the password masked
 alembic check        # "No new upgrade operations detected."
 ```
 

@@ -30,8 +30,8 @@ def _indexes(name: str) -> set[str]:
 
 
 def test_registered_tables_are_the_implemented_schema_phases() -> None:
-    # Schema phases 1-2. This set grows when later phases (lead_predictions,
-    # document_chunks) are implemented; update it together with docs/DATABASE.md.
+    # Schema phases 1-3. This set grows when document_chunks is implemented; update it
+    # together with docs/DATABASE.md.
     assert set(Base.metadata.tables) == {
         "users",
         "accounts",
@@ -40,6 +40,7 @@ def test_registered_tables_are_the_implemented_schema_phases() -> None:
         "opportunities",
         "activities",
         "notes",
+        "lead_predictions",
     }
 
 
@@ -150,6 +151,21 @@ def test_registered_tables_are_the_implemented_schema_phases() -> None:
                 "updated_at": ("TIMESTAMP WITH TIME ZONE", False),
             },
         ),
+        (
+            "lead_predictions",
+            {
+                "id": ("UUID", False),
+                "lead_id": ("UUID", False),
+                "prediction_timestamp": ("TIMESTAMP WITH TIME ZONE", False),
+                "conversion_probability": ("FLOAT", False),
+                "lead_tier": ("VARCHAR(32)", False),
+                "model_name": ("VARCHAR(128)", False),
+                "model_version": ("VARCHAR(64)", False),
+                "features": ("JSONB", False),
+                "inference_ms": ("FLOAT", True),
+                "created_at": ("TIMESTAMP WITH TIME ZONE", False),
+            },
+        ),
     ],
 )
 def test_columns_match_spec(table: str, columns: dict[str, tuple[str, bool]]) -> None:
@@ -186,6 +202,11 @@ def test_check_constraints_match_spec() -> None:
         "ck_activities_at_least_one_parent",
     }
     assert _checks("notes") == {"ck_notes_at_least_one_parent"}
+    assert _checks("lead_predictions") == {
+        "ck_lead_predictions_lead_tier",
+        "ck_lead_predictions_conversion_probability_range",
+        "ck_lead_predictions_inference_ms_non_negative",
+    }
 
 
 def test_indexes_match_spec() -> None:
@@ -212,10 +233,14 @@ def test_indexes_match_spec() -> None:
         "ix_notes_opportunity_id",
         "ix_notes_author_id",
     }
+    assert _indexes("lead_predictions") == {"ix_lead_predictions_prediction_timestamp"}
     unique = {
-        str(c.name) for c in _table("users").constraints if isinstance(c, UniqueConstraint)
+        str(c.name)
+        for table in Base.metadata.tables.values()
+        for c in table.constraints
+        if isinstance(c, UniqueConstraint)
     }
-    assert unique == {"uq_users_email"}
+    assert unique == {"uq_users_email", "uq_lead_predictions_lead_id_timestamp_model"}
 
 
 def test_foreign_keys_and_delete_behavior_match_spec() -> None:
@@ -241,6 +266,7 @@ def test_foreign_keys_and_delete_behavior_match_spec() -> None:
         "fk_notes_lead_id_leads": "RESTRICT",
         "fk_notes_opportunity_id_opportunities": "RESTRICT",
         "fk_notes_author_id_users": "SET NULL",
+        "fk_lead_predictions_lead_id_leads": "CASCADE",
     }
 
 

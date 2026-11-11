@@ -15,8 +15,14 @@ the OpenAPI schema is at `/openapi.json`.
 source ~/.virtualenvs/revintel/bin/activate
 docker compose up -d                       # PostgreSQL + Redis
 cp .env.example .env                       # first time only
-fastapi dev backend/app/main.py
+alembic upgrade head                       # creates lead_predictions on a fresh database
+PYTHONPATH=. fastapi dev backend/app/main.py
 ```
+
+`PYTHONPATH=.` puts the repo root on the path: the API imports the shared `ml` package
+(feature computation and the model contract) for lead scoring, and needs the ML
+dependencies from `requirements/ml.txt`. Scoring also needs the MLflow server
+(`scripts/start_mlflow.sh`, see `docs/MLFLOW.md`).
 
 ## Configuration
 
@@ -43,6 +49,8 @@ The API needs every required variable below. Alembic only needs `DATABASE_URL` a
 | `JWT_SECRET` | yes | — | Signing key for access tokens; at least 32 characters. Never commit or log it. |
 | `JWT_ALGORITHM` | no | `HS256` | Fixed to `HS256` in V1; any other value is rejected. |
 | `ACCESS_TOKEN_EXPIRE_MINUTES` | no | `60` | 1–1440. |
+| `MLFLOW_TRACKING_URI` | no | `http://127.0.0.1:5001` | MLflow server used to resolve and load the `champion` model for lead scoring. |
+| `MLFLOW_MODEL_NAME` | no | `revintel-lead-conversion` | Registered model whose `champion` alias is scored. |
 
 Invalid or missing required settings stop the application at startup. Validation errors
 do not echo the offending values, so connection strings do not end up in logs.
@@ -205,6 +213,7 @@ Mutations require a bearer token (see [Authentication](#authentication)); reads 
 | Business rule violated (e.g. inactive owner, creating a `CONVERTED` lead, references to different accounts) | `422` | `{"detail": "owner_id refers to an inactive user"}` |
 | Missing/invalid/expired token, or inactive/deleted user | `401` | `{"detail": "Could not validate credentials"}` |
 | Authenticated but role not allowed (no V1 endpoint yet) | `403` | `{"detail": "Insufficient permissions"}` |
+| Lead scoring cannot use the model (MLflow unreachable, no `champion`, model/feature-spec mismatch, malformed model output) | `503` | `{"detail": "Lead scoring is currently unavailable."}`; the specific reason is only logged (`lead_scoring_unavailable`) |
 | Unexpected server error | `500` | `{"detail": "Internal Server Error"}` (see [Request IDs and logging](#request-ids-and-logging)) |
 
 Request bodies reject unknown fields (`422`), so a misspelled or unsupported field is never
@@ -355,6 +364,49 @@ Paginated list of leads. Optional filters: `status`, `lead_source`.
 #### `GET /api/v1/leads/{lead_id}` → `200`
 
 `404` if the lead does not exist; `422` for a malformed UUID.
+
+#### `POST /api/v1/leads/{lead_id}/scores` → `201`
+
+Scores the lead now with the champion model and stores the score (no request body;
+requires a bearer token). Each call adds a row; earlier scores are kept.
+
+1. Captures one UTC prediction timestamp `T`.
+2. Computes the point-in-time features at `T` with the same feature code as model training.
+   Only activities with `occurred_at <= T` and `created_at <= T` count.
+3. Uses the registered model's `champion` version. The alias is resolved once per API
+   process and the model is cached, so restart the API after promoting a new champion.
+4. Predicts the class-1 probability (`predict_proba`), assigns the tier and stores the
+   score.
+
+```json
+{
+  "lead_id": "6f1c...",
+  "conversion_probability": 0.173,
+  "lead_tier": "HOT",
+  "model_name": "revintel-lead-conversion",
+  "model_version": "4",
+  "prediction_timestamp": "2026-11-10T07:12:03.481920Z",
+  "inference_ms": 14.8
+}
+```
+
+| Field | Meaning |
+|---|---|
+| `conversion_probability` | Probability that the lead converts in `(T, T + 30 days]`. |
+| `lead_tier` | Product policy: `HOT` ≥ 0.15, `WARM` ≥ 0.05, `COLD` < 0.05. These thresholds are separate from the model's evaluation threshold. |
+| `model_version` | The concrete MLflow version that produced the score. |
+| `inference_ms` | Model inference time only, excluding feature computation and storage. |
+
+**Errors:**
+- `401` without a token.
+- `404` if the lead does not exist.
+- `503` if scoring is unavailable (see [Errors](#errors)). Nothing is stored.
+
+#### `GET /api/v1/leads/{lead_id}/scores/latest` → `200`
+
+The most recent stored score, in the same shape, exactly as it was stored. The tier isn't
+recomputed, and neither MLflow nor the model is called. `404` with `Lead <id> not found`
+if the lead doesn't exist, or `No score found for lead <id>` if it has never been scored.
 
 ### Opportunities
 

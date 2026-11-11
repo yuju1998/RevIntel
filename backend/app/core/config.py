@@ -8,6 +8,10 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # Name the driver explicitly instead of relying on SQLAlchemy's default for `postgresql://`.
 REQUIRED_DATABASE_SCHEME = "postgresql+psycopg"
+# MLflow defaults; kept equal to ml.training.mlflow_config by a unit test. Not imported
+# from `ml` so that settings (and Alembic, which loads them) stay free of the ML package.
+DEFAULT_MLFLOW_TRACKING_URI = "http://127.0.0.1:5001"
+DEFAULT_MLFLOW_MODEL_NAME = "revintel-lead-conversion"
 
 
 class DatabaseSettings(BaseSettings):
@@ -58,6 +62,11 @@ class Settings(DatabaseSettings):
     jwt_secret: SecretStr = Field(min_length=32)
     jwt_algorithm: Literal["HS256"] = "HS256"
     access_token_expire_minutes: int = Field(default=60, ge=1, le=1440)
+
+    # Online lead scoring. The `champion` alias of this registered model is resolved and
+    # loaded once per process; restart the API after promoting a new champion.
+    mlflow_tracking_uri: str = Field(default=DEFAULT_MLFLOW_TRACKING_URI, min_length=1)
+    mlflow_model_name: str = Field(default=DEFAULT_MLFLOW_MODEL_NAME, min_length=1)
 
 
 @lru_cache

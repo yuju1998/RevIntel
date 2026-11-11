@@ -16,6 +16,7 @@ from app.core.config import Settings, get_settings
 from app.core.logging import configure_logging
 from app.core.redis import create_redis_client
 from app.db.session import create_db_engine, create_session_factory
+from app.ml_inference.champion import ChampionModelProvider
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -37,6 +38,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         app.state.session_factory = create_session_factory(engine)
         app.state.redis = redis_client
         app.state.cache_redis = cache_redis_client
+        # No MLflow call here: the champion model is resolved and loaded on first use.
+        app.state.champion_models = ChampionModelProvider(
+            resolved_settings.mlflow_tracking_uri, resolved_settings.mlflow_model_name
+        )
         try:
             yield
         finally:

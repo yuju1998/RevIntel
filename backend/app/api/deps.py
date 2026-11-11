@@ -10,10 +10,13 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from app.core.cache import Cache, NullCache, RedisCache
 from app.core.config import Settings
+from app.ml_inference.champion import ChampionModelProvider
 from app.repositories.account import AccountRepository
 from app.repositories.activity import ActivityRepository
 from app.repositories.contact import ContactRepository
 from app.repositories.lead import LeadRepository
+from app.repositories.lead_features import LeadFeatureRepository
+from app.repositories.lead_prediction import LeadPredictionRepository
 from app.repositories.note import NoteRepository
 from app.repositories.opportunity import OpportunityRepository
 from app.repositories.timeline import TimelineRepository
@@ -24,6 +27,7 @@ from app.services.activity_service import ActivityService
 from app.services.auth_service import AuthService
 from app.services.contact_service import ContactService
 from app.services.crm_references import CrmRepositories
+from app.services.lead_scoring_service import LeadScoringService
 from app.services.lead_service import LeadService
 from app.services.note_service import NoteService
 from app.services.opportunity_service import OpportunityService
@@ -65,6 +69,11 @@ def get_db(request: Request) -> Iterator[Session]:
         session.close()
 
 
+def get_champion_models(request: Request) -> ChampionModelProvider:
+    """Process-wide champion model cache (created at startup, loaded on first use)."""
+    return request.app.state.champion_models
+
+
 SettingsDep = Annotated[Settings, Depends(get_app_settings)]
 EngineDep = Annotated[Engine, Depends(get_engine)]
 RedisDep = Annotated[Redis, Depends(get_redis)]
@@ -103,6 +112,19 @@ def get_lead_service(session: SessionDep) -> LeadService:
     return LeadService(session, LeadRepository(session), UserRepository(session))
 
 
+def get_lead_scoring_service(
+    session: SessionDep,
+    models: Annotated[ChampionModelProvider, Depends(get_champion_models)],
+) -> LeadScoringService:
+    return LeadScoringService(
+        session,
+        LeadRepository(session),
+        LeadPredictionRepository(session),
+        LeadFeatureRepository(session),
+        models,
+    )
+
+
 def get_opportunity_service(session: SessionDep) -> OpportunityService:
     return OpportunityService(
         session,
@@ -137,6 +159,7 @@ AuthServiceDep = Annotated[AuthService, Depends(get_auth_service)]
 AccountServiceDep = Annotated[AccountService, Depends(get_account_service)]
 ContactServiceDep = Annotated[ContactService, Depends(get_contact_service)]
 LeadServiceDep = Annotated[LeadService, Depends(get_lead_service)]
+LeadScoringServiceDep = Annotated[LeadScoringService, Depends(get_lead_scoring_service)]
 OpportunityServiceDep = Annotated[OpportunityService, Depends(get_opportunity_service)]
 ActivityServiceDep = Annotated[ActivityService, Depends(get_activity_service)]
 NoteServiceDep = Annotated[NoteService, Depends(get_note_service)]

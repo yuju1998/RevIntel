@@ -78,7 +78,14 @@ extraction, parquet output) and online scoring (`online_features.py`). See
   moves that exact version to `champion` and sets `validation_status=approved`. See
   `docs/MLFLOW.md`.
 
-Placeholder packages `app/ai/` and `app/ml_inference/` exist for future layers and contain
+`app/ml_inference/champion.py` resolves the registered model's `champion` alias once per
+process, loads that exact version from MLflow and checks it against the shared model
+contract (`ml/model_contract.py`). `LeadScoringService` scores leads with it, using the
+shared online feature code, and stores the results in `lead_predictions`. Because the API
+imports the `ml` package, run it with the repo root on `PYTHONPATH` (see
+`docs/API.md`).
+
+The placeholder package `app/ai/` exists for a future layer and contains
 no code yet.
 
 ## Transactions
@@ -163,7 +170,6 @@ no code yet.
 
 ## Future layers (not implemented)
 
-- Online scoring into `lead_predictions`.
 - MLOps orchestration with Airflow.
 - RAG over `document_chunks` with pgvector, account-scoped retrieval and Bedrock
   generation.
