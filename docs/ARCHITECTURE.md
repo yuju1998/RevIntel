@@ -77,6 +77,11 @@ extraction, parquet output) and online scoring (`online_features.py`). See
   already-registered version as `challenger`; `python -m ml.training.promote --version <N>`
   moves that exact version to `champion` and sets `validation_status=approved`. See
   `docs/MLFLOW.md`.
+- **Weekly training (Airflow):** `airflow/dags/lead_conversion_training.py` runs the
+  pipeline steps in `ml/pipeline/lead_conversion.py` (snapshot, features, fit, evaluate,
+  register the best validation candidate, set `challenger`) in Docker, in an isolated
+  RevIntel virtualenv. XCom carries metadata only, artifacts live in per-run directories,
+  and `champion` stays manual. See `docs/AIRFLOW.md`.
 
 `app/ml_inference/champion.py` resolves the registered model's `champion` alias once per
 process, loads that exact version from MLflow and checks it against the shared model
@@ -170,7 +175,6 @@ no code yet.
 
 ## Future layers (not implemented)
 
-- MLOps orchestration with Airflow.
 - RAG over `document_chunks` with pgvector, account-scoped retrieval and Bedrock
   generation.
 

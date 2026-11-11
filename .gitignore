@@ -32,6 +32,8 @@ data/processed/*
 # Airflow
 airflow/logs/
 airflow/airflow.db
+# Generated airflow.cfg and the local admin password (SimpleAuthManager)
+airflow/config/
 
 # Docker
 *.log

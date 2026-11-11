@@ -105,11 +105,17 @@ def git_commit() -> str | None:
     return result.stdout.strip()
 
 
-def build(
-    database_url: str, manifest: SourceManifest, progress: Callable[[str], None] = print
-) -> FeatureBuild:
-    policy = SnapshotPolicy(as_of=manifest.as_of, max_lead_age_days=manifest.max_lead_age_days)
-    started = time.perf_counter()
+@dataclass(frozen=True)
+class SourceExtract:
+    """Lead and lead-activity rows read in one consistent, read-only transaction."""
+
+    leads: pd.DataFrame
+    activities: pd.DataFrame
+    row_counts: dict[str, int]
+
+
+def extract_sources(database_url: str, manifest: SourceManifest) -> SourceExtract:
+    """Read the feature inputs, refusing a database that is not the manifest's dataset."""
     with read_only_connection(database_url) as connection:
         counts = source_row_counts(connection)
         if counts != manifest.row_counts:
@@ -119,8 +125,18 @@ def build(
             )
         leads = load_leads(connection)
         activities = load_lead_activities(connection)
-    progress(f"  loaded {len(leads):,} leads, {len(activities):,} lead activities (read-only)")
+    return SourceExtract(leads=leads, activities=activities, row_counts=counts)
 
+
+def build_from_sources(
+    leads: pd.DataFrame,
+    activities: pd.DataFrame,
+    manifest: SourceManifest,
+    progress: Callable[[str], None] = print,
+) -> FeatureBuild:
+    """Snapshots, labels and features from already-extracted rows (no database access)."""
+    policy = SnapshotPolicy(as_of=manifest.as_of, max_lead_age_days=manifest.max_lead_age_days)
+    started = time.perf_counter()
     frame = build_snapshots(leads, policy)
     progress(f"  snapshots: {len(frame):,}")
     table = compute_features(frame, activities)
@@ -148,6 +164,17 @@ def build(
         "git_commit": git_commit(),
     }
     return FeatureBuild(table=table, metadata=metadata, statistics=statistics)
+
+
+def build(
+    database_url: str, manifest: SourceManifest, progress: Callable[[str], None] = print
+) -> FeatureBuild:
+    extract = extract_sources(database_url, manifest)
+    progress(
+        f"  loaded {len(extract.leads):,} leads, {len(extract.activities):,} lead activities "
+        "(read-only)"
+    )
+    return build_from_sources(extract.leads, extract.activities, manifest, progress)
 
 
 def write_outputs(result: FeatureBuild, output: Path) -> Path:
