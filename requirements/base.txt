@@ -13,5 +13,7 @@ orjson
 httpx
 tenacity
 pgvector
+# Local embeddings (sentence-transformers/all-MiniLM-L6-v2) for CRM semantic search.
+sentence-transformers
 boto3
 

@@ -17,6 +17,7 @@ from app.core.exceptions import (
     PermissionDeniedError,
     RelatedResourceNotFoundError,
     ScoringUnavailableError,
+    SearchUnavailableError,
 )
 
 STATUS_BY_ERROR: dict[type[DomainError], int] = {
@@ -26,6 +27,7 @@ STATUS_BY_ERROR: dict[type[DomainError], int] = {
     AuthenticationError: status.HTTP_401_UNAUTHORIZED,
     PermissionDeniedError: status.HTTP_403_FORBIDDEN,
     ScoringUnavailableError: status.HTTP_503_SERVICE_UNAVAILABLE,
+    SearchUnavailableError: status.HTTP_503_SERVICE_UNAVAILABLE,
 }
 
 

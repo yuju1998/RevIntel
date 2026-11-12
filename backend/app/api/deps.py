@@ -8,6 +8,7 @@ from redis import Redis
 from sqlalchemy import Engine
 from sqlalchemy.orm import Session, sessionmaker
 
+from app.ai.embeddings import EmbeddingProvider
 from app.core.cache import Cache, NullCache, RedisCache
 from app.core.config import Settings
 from app.ml_inference.champion import ChampionModelProvider
@@ -19,6 +20,7 @@ from app.repositories.lead_features import LeadFeatureRepository
 from app.repositories.lead_prediction import LeadPredictionRepository
 from app.repositories.note import NoteRepository
 from app.repositories.opportunity import OpportunityRepository
+from app.repositories.semantic_search import SemanticSearchRepository
 from app.repositories.timeline import TimelineRepository
 from app.repositories.user import UserRepository
 from app.services.account_cache import AccountCache
@@ -31,6 +33,7 @@ from app.services.lead_scoring_service import LeadScoringService
 from app.services.lead_service import LeadService
 from app.services.note_service import NoteService
 from app.services.opportunity_service import OpportunityService
+from app.services.semantic_search_service import SemanticSearchService
 from app.services.timeline_service import TimelineService
 
 
@@ -112,6 +115,20 @@ def get_lead_service(session: SessionDep) -> LeadService:
     return LeadService(session, LeadRepository(session), UserRepository(session))
 
 
+def get_embedding_provider(request: Request) -> EmbeddingProvider:
+    """Process-wide embedding model (created at startup, loaded on first use)."""
+    return request.app.state.embedding_provider
+
+
+def get_semantic_search_service(
+    session: SessionDep,
+    embeddings: Annotated[EmbeddingProvider, Depends(get_embedding_provider)],
+) -> SemanticSearchService:
+    return SemanticSearchService(
+        AccountRepository(session), SemanticSearchRepository(session), embeddings
+    )
+
+
 def get_lead_scoring_service(
     session: SessionDep,
     models: Annotated[ChampionModelProvider, Depends(get_champion_models)],
@@ -160,6 +177,9 @@ AccountServiceDep = Annotated[AccountService, Depends(get_account_service)]
 ContactServiceDep = Annotated[ContactService, Depends(get_contact_service)]
 LeadServiceDep = Annotated[LeadService, Depends(get_lead_service)]
 LeadScoringServiceDep = Annotated[LeadScoringService, Depends(get_lead_scoring_service)]
+SemanticSearchServiceDep = Annotated[
+    SemanticSearchService, Depends(get_semantic_search_service)
+]
 OpportunityServiceDep = Annotated[OpportunityService, Depends(get_opportunity_service)]
 ActivityServiceDep = Annotated[ActivityService, Depends(get_activity_service)]
 NoteServiceDep = Annotated[NoteService, Depends(get_note_service)]

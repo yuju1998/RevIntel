@@ -90,8 +90,14 @@ shared online feature code, and stores the results in `lead_predictions`. Becaus
 imports the `ml` package, run it with the repo root on `PYTHONPATH` (see
 `docs/API.md`).
 
-The placeholder package `app/ai/` exists for a future layer and contains
-no code yet.
+`app/ai/` holds CRM semantic search building blocks: the embedding provider
+(`embeddings.py`; local `sentence-transformers/all-MiniLM-L6-v2`, loaded once per process
+on first use), token-aware chunking and CRM text builders. `CrmIndexingService`
+(`python -m app.cli.index_crm`) embeds CRM text into `document_chunks`;
+`SemanticSearchService` answers `POST /api/v1/assistant/search` through
+`SemanticSearchRepository`, whose single SQL statement is restricted to the requested
+account. No LLM or answer generation yet. See `docs/DATABASE.md`, "document_chunks" and
+"RAG isolation rule".
 
 ## Transactions
 

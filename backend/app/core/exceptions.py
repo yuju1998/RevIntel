@@ -42,3 +42,16 @@ class ScoringUnavailableError(DomainError):
     def __init__(self, reason: str) -> None:
         super().__init__(self.CLIENT_MESSAGE)
         self.reason = reason
+
+
+class SearchUnavailableError(DomainError):
+    """Semantic search cannot embed the query right now (e.g. the model failed to load).
+
+    Clients only ever see a generic message; `reason` is for logs.
+    """
+
+    CLIENT_MESSAGE = "Semantic search is currently unavailable."
+
+    def __init__(self, reason: str) -> None:
+        super().__init__(self.CLIENT_MESSAGE)
+        self.reason = reason

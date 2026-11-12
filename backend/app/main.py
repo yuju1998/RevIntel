@@ -9,6 +9,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
+from app.ai.embeddings import SentenceTransformerProvider
 from app.api.errors import register_exception_handlers
 from app.api.middleware import RequestContextMiddleware
 from app.api.router import api_router
@@ -38,7 +39,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         app.state.session_factory = create_session_factory(engine)
         app.state.redis = redis_client
         app.state.cache_redis = cache_redis_client
-        # No MLflow call here: the champion model is resolved and loaded on first use.
+        # Neither model is loaded here: each is loaded once, on first use.
+        app.state.embedding_provider = SentenceTransformerProvider(
+            resolved_settings.embedding_model,
+            resolved_settings.embedding_dimension,
+            batch_size=resolved_settings.embedding_batch_size,
+        )
         app.state.champion_models = ChampionModelProvider(
             resolved_settings.mlflow_tracking_uri, resolved_settings.mlflow_model_name
         )

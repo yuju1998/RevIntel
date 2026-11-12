@@ -7,6 +7,7 @@ models are registered on `Base.metadata` before autogenerate runs.
 from app.models.account import Account
 from app.models.activity import Activity
 from app.models.contact import Contact
+from app.models.document_chunk import DocumentChunk
 from app.models.lead import Lead
 from app.models.lead_prediction import LeadPrediction
 from app.models.note import Note
@@ -17,6 +18,7 @@ __all__ = [
     "Account",
     "Activity",
     "Contact",
+    "DocumentChunk",
     "Lead",
     "LeadPrediction",
     "Note",

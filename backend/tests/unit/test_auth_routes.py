@@ -263,6 +263,7 @@ def test_openapi_marks_exactly_the_mutations_and_me_as_protected(app: FastAPI) -
         ("PATCH", "/api/v1/opportunities/{opportunity_id}"),
         ("POST", "/api/v1/activities"),
         ("POST", "/api/v1/notes"),
+        ("POST", "/api/v1/assistant/search"),
         ("GET", "/api/v1/users/me"),
         ("GET", "/_test/admin-only"),
         ("GET", "/_test/any-role"),

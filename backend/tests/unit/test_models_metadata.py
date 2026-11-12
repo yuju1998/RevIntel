@@ -30,8 +30,7 @@ def _indexes(name: str) -> set[str]:
 
 
 def test_registered_tables_are_the_implemented_schema_phases() -> None:
-    # Schema phases 1-3. This set grows when document_chunks is implemented; update it
-    # together with docs/DATABASE.md.
+    # Schema phases 1-4; update together with docs/DATABASE.md.
     assert set(Base.metadata.tables) == {
         "users",
         "accounts",
@@ -41,6 +40,7 @@ def test_registered_tables_are_the_implemented_schema_phases() -> None:
         "activities",
         "notes",
         "lead_predictions",
+        "document_chunks",
     }
 
 
@@ -166,6 +166,25 @@ def test_registered_tables_are_the_implemented_schema_phases() -> None:
                 "created_at": ("TIMESTAMP WITH TIME ZONE", False),
             },
         ),
+        (
+            "document_chunks",
+            {
+                "id": ("UUID", False),
+                "account_id": ("UUID", False),
+                "source_type": ("VARCHAR(32)", False),
+                "source_id": ("UUID", False),
+                "entity_type": ("VARCHAR(32)", False),
+                "entity_id": ("UUID", False),
+                "chunk_index": ("INTEGER", False),
+                "content": ("TEXT", False),
+                "embedding": ("VECTOR(384)", False),
+                "embedding_model": ("VARCHAR(255)", False),
+                "source_sha256": ("VARCHAR(64)", False),
+                "metadata": ("JSONB", False),
+                "occurred_at": ("TIMESTAMP WITH TIME ZONE", False),
+                "created_at": ("TIMESTAMP WITH TIME ZONE", False),
+            },
+        ),
     ],
 )
 def test_columns_match_spec(table: str, columns: dict[str, tuple[str, bool]]) -> None:
@@ -207,6 +226,11 @@ def test_check_constraints_match_spec() -> None:
         "ck_lead_predictions_conversion_probability_range",
         "ck_lead_predictions_inference_ms_non_negative",
     }
+    assert _checks("document_chunks") == {
+        "ck_document_chunks_document_source_type",
+        "ck_document_chunks_document_entity_type",
+        "ck_document_chunks_chunk_index_non_negative",
+    }
 
 
 def test_indexes_match_spec() -> None:
@@ -234,13 +258,18 @@ def test_indexes_match_spec() -> None:
         "ix_notes_author_id",
     }
     assert _indexes("lead_predictions") == {"ix_lead_predictions_prediction_timestamp"}
+    assert _indexes("document_chunks") == {"ix_document_chunks_account_id"}
     unique = {
         str(c.name)
         for table in Base.metadata.tables.values()
         for c in table.constraints
         if isinstance(c, UniqueConstraint)
     }
-    assert unique == {"uq_users_email", "uq_lead_predictions_lead_id_timestamp_model"}
+    assert unique == {
+        "uq_users_email",
+        "uq_lead_predictions_lead_id_timestamp_model",
+        "uq_document_chunks_source_type_source_id_chunk_index",
+    }
 
 
 def test_foreign_keys_and_delete_behavior_match_spec() -> None:
@@ -267,6 +296,7 @@ def test_foreign_keys_and_delete_behavior_match_spec() -> None:
         "fk_notes_opportunity_id_opportunities": "RESTRICT",
         "fk_notes_author_id_users": "SET NULL",
         "fk_lead_predictions_lead_id_leads": "CASCADE",
+        "fk_document_chunks_account_id_accounts": "CASCADE",
     }
 
 

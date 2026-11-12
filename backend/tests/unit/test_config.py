@@ -3,7 +3,13 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from app.core.config import DatabaseSettings, Settings, get_database_settings, get_settings
+from app.core.config import (
+    DatabaseSettings,
+    EmbeddingSettings,
+    Settings,
+    get_database_settings,
+    get_settings,
+)
 
 pytestmark = pytest.mark.usefixtures("clean_env")
 
@@ -29,7 +35,8 @@ def test_loads_settings_from_env_file(tmp_path: Path) -> None:
         "DB_POOL_SIZE=7\n"
         "MLFLOW_TRACKING_URI=http://mlflow.internal:5001\n"
         # Keys for features that are not built yet must not break loading.
-        "EMBEDDING_PROVIDER=local\n"
+        "EMBEDDING_DIMENSION=384\n"
+        "LLM_PROVIDER=mock\n"
     )
 
     settings = Settings(_env_file=env_file)
@@ -41,7 +48,9 @@ def test_loads_settings_from_env_file(tmp_path: Path) -> None:
     assert settings.db_pool_size == 7
     assert settings.mlflow_tracking_uri == "http://mlflow.internal:5001"
     assert settings.mlflow_model_name == "revintel-lead-conversion"
-    assert not hasattr(settings, "embedding_provider")
+    assert settings.embedding_model == "sentence-transformers/all-MiniLM-L6-v2"
+    assert settings.embedding_dimension == 384
+    assert not hasattr(settings, "llm_provider")
 
 
 def test_environment_variables_override_env_file(
@@ -271,3 +280,11 @@ def test_mlflow_defaults_match_the_ml_tooling() -> None:
 
     assert config.DEFAULT_MLFLOW_TRACKING_URI == mlflow_config.DEFAULT_TRACKING_URI
     assert config.DEFAULT_MLFLOW_MODEL_NAME == mlflow_config.DEFAULT_REGISTERED_MODEL
+
+
+def test_embedding_dimension_must_match_the_schema(tmp_path: Path) -> None:
+    env_file = tmp_path / ".env"
+    env_file.write_text("EMBEDDING_DIMENSION=768\n")
+
+    with pytest.raises(ValidationError, match="EMBEDDING_DIMENSION must be 384"):
+        EmbeddingSettings(_env_file=env_file)

@@ -35,9 +35,9 @@
 - [x] Candidate registration
 
 ## Phase 4 — AI
-- [ ] pgvector schema
-- [ ] CRM indexing
-- [ ] Semantic search
+- [x] pgvector schema
+- [x] CRM indexing
+- [x] Semantic search
 - [ ] Bedrock provider
 - [ ] Copilot
 - [ ] Citation validation

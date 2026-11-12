@@ -51,6 +51,10 @@ The API needs every required variable below. Alembic only needs `DATABASE_URL` a
 | `ACCESS_TOKEN_EXPIRE_MINUTES` | no | `60` | 1–1440. |
 | `MLFLOW_TRACKING_URI` | no | `http://127.0.0.1:5001` | MLflow server used to resolve and load the `champion` model for lead scoring. |
 | `MLFLOW_MODEL_NAME` | no | `revintel-lead-conversion` | Registered model whose `champion` alias is scored. |
+| `EMBEDDING_PROVIDER` | no | `local` | Only `local` (sentence-transformers) in V1. |
+| `EMBEDDING_MODEL` | no | `sentence-transformers/all-MiniLM-L6-v2` | Downloaded once into the Hugging Face cache, loaded on the first search. |
+| `EMBEDDING_DIMENSION` | no | `384` | Must be `384` (`document_chunks.embedding`). |
+| `EMBEDDING_BATCH_SIZE` | no | `64` | Texts per model forward pass (1–1024). |
 
 Invalid or missing required settings stop the application at startup. Validation errors
 do not echo the offending values, so connection strings do not end up in logs.
@@ -543,6 +547,45 @@ records (`account_id: null`) and other accounts' records never appear.
 ```
 
 `404` if the account does not exist; `422` for a malformed UUID or invalid pagination.
+
+### Assistant
+
+#### `POST /api/v1/assistant/search` → `200`
+
+Semantic search over **one** account's indexed CRM text (activities, notes, opportunities
+and the account itself). Requires a bearer token. No answer generation: it returns the
+matching CRM records.
+
+| Field | Type | Required |
+|---|---|---|
+| `account_id` | UUID | yes |
+| `query` | string, trimmed, 1–1000 characters | yes |
+| `limit` | integer 1–20 | no (default 5) |
+
+```json
+{
+  "account_id": "0eb86761-...",
+  "results": [
+    {"source_type": "NOTE", "source_id": "e76be814-...",
+     "content": "The CFO pushed back on our pricing and asked for a 15% discount.",
+     "similarity": 0.337, "occurred_at": "2026-09-20T15:00:00Z"}
+  ]
+}
+```
+
+- Results are ordered by cosine `similarity` (higher is more similar). `source_type` +
+  `source_id` identify the CRM record; `occurred_at` is its business timestamp.
+- Only the requested account is searched, inside the database query (see
+  `docs/DATABASE.md`, "RAG isolation rule"). Another account's records are never returned.
+- Results reflect the last indexing run (`python -m app.cli.index_crm`), not live writes.
+- An account with nothing indexed returns `"results": []`.
+
+**Errors:**
+- `401` without a token.
+- `404` if the account does not exist.
+- `422` for a missing or invalid field, or an unknown field.
+- `503` `{"detail": "Semantic search is currently unavailable."}` if the embedding model
+  cannot be loaded; the reason is only logged (`semantic_search_unavailable`).
 
 ## Tests
 
