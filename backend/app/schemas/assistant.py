@@ -32,3 +32,21 @@ class SemanticSearchResult(ResponseModel):
 class SemanticSearchResponse(ResponseModel):
     account_id: uuid.UUID
     results: list[SemanticSearchResult]
+
+
+class AssistantQueryRequest(RequestModel):
+    account_id: uuid.UUID
+    question: SearchQuery
+
+
+class AssistantSource(ResponseModel):
+    source_id: uuid.UUID
+    source_type: DocumentSourceType
+
+
+class AssistantQueryResponse(ResponseModel):
+    answer: str
+    # True when the account's records do not answer the question.
+    insufficient_evidence: bool
+    # Validated citations: always records retrieved for this account.
+    sources: list[AssistantSource]

@@ -26,7 +26,11 @@ Data orchestration:
 AI:
 - pgvector retrieval
 - local embeddings during development
-- Amazon Bedrock for production LLM generation
+- LLMProvider is the LLM provider abstraction
+- OpenAILLMProvider (OpenAI Responses API) is the V1 production implementation
+- MockLLMProvider is used for local development and tests
+- business/RAG logic (retrieval, prompting, citation validation) must remain
+  provider-independent
 
 Infrastructure:
 - Docker

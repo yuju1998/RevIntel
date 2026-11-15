@@ -1,0 +1,126 @@
+{
+  "description": "Manually verified RAG evaluation cases on the deterministic synthetic CRM dataset (seed 42). expected_sources are the records whose text answers the question; no reference answers.",
+  "dataset_sha256": "e32406eb1876c17f09e82e36134995d3f8e070b22af3a96d9415b51fd5604c06",
+  "embedding_model": "sentence-transformers/all-MiniLM-L6-v2",
+  "retrieval_k": 5,
+  "cases": [
+    {
+      "case_id": "pricing-webb-contreras",
+      "account_id": "003b6a16-e307-4a9c-9be5-8c6b869b40fd",
+      "question": "What has been discussed about pricing with this account?",
+      "expected_sources": [
+        {
+          "source_type": "ACTIVITY",
+          "source_id": "93b61ae9-5463-4544-874d-01c34e2377d5"
+        },
+        {
+          "source_type": "ACTIVITY",
+          "source_id": "2a5993ec-b55c-4f02-871c-5d14b49c0d2e"
+        }
+      ],
+      "rationale": "93b61ae9: 'Received a reply asking for more detail on pricing.'; 2a5993ec: subject 'Pricing questions' (body is about integrations). No other activity of the account mentions pricing."
+    },
+    {
+      "case_id": "integrations-horton-group",
+      "account_id": "0051e77d-9c49-43bf-aa4f-c89a07a66e9f",
+      "question": "What has been discussed about integrations with this account?",
+      "expected_sources": [
+        {
+          "source_type": "ACTIVITY",
+          "source_id": "4afb141d-ffd2-4f2e-bfd4-8ad119073136"
+        }
+      ],
+      "rationale": "4afb141d: 'Reached out to discuss integrations.'; the other 6 activities have no body."
+    },
+    {
+      "case_id": "security-review-kelly-inc",
+      "account_id": "01520acf-fcff-46a8-9530-2afb61ce2fe2",
+      "question": "What has been discussed about the security review with this account?",
+      "expected_sources": [
+        {
+          "source_type": "ACTIVITY",
+          "source_id": "87f44ad7-50d6-4af6-af47-935434498097"
+        }
+      ],
+      "rationale": "87f44ad7: 'Received a reply asking for more detail on the security review.'"
+    },
+    {
+      "case_id": "onboarding-singh-contreras-jackson",
+      "account_id": "0197a026-7455-4abf-bf32-203330097dd6",
+      "question": "What has been discussed about onboarding with this account?",
+      "expected_sources": [
+        {
+          "source_type": "ACTIVITY",
+          "source_id": "3bd3e2bf-8563-4d70-88a0-581c5c378eff"
+        }
+      ],
+      "rationale": "3bd3e2bf: 'Team sync about onboarding.'; other bodies cover security review, integrations and reporting features."
+    },
+    {
+      "case_id": "reporting-brown-patel-warner",
+      "account_id": "02d13a78-2c6c-46d4-b91e-bcabf1d1d396",
+      "question": "What has been discussed about reporting features with this account?",
+      "expected_sources": [
+        {
+          "source_type": "ACTIVITY",
+          "source_id": "98e32093-9115-4257-827b-861719c52615"
+        },
+        {
+          "source_type": "ACTIVITY",
+          "source_id": "360d0d1a-0220-4d85-8e6b-93b520478327"
+        }
+      ],
+      "rationale": "98e32093: 'Internal note: prepare material on reporting features.'; 360d0d1a: 'Received a reply asking for more detail on reporting features.'"
+    },
+    {
+      "case_id": "timeline-schmidt-and-sons",
+      "account_id": "03a97ffc-e51a-48b3-a17c-1f4a071f410f",
+      "question": "What has been discussed about the implementation timeline with this account?",
+      "expected_sources": [
+        {
+          "source_type": "ACTIVITY",
+          "source_id": "861d58eb-2c18-4a6f-95c8-f6ac29fdfc67"
+        }
+      ],
+      "rationale": "861d58eb: 'Reached out to discuss the implementation timeline.'; other bodies are about reporting features."
+    },
+    {
+      "case_id": "insufficient-pricing-taylor-ltd",
+      "account_id": "00059a26-feb8-43f9-b78e-4d6a39293944",
+      "question": "What has been discussed about pricing with this account?",
+      "expected_sources": [],
+      "rationale": "None of the account's 7 activities (or its account record) mentions pricing."
+    },
+    {
+      "case_id": "insufficient-security-ross-mcknight-jenkins",
+      "account_id": "006fe685-61f9-4d11-9c1d-6ad875c65eda",
+      "question": "What has been discussed about the security review with this account?",
+      "expected_sources": [],
+      "rationale": "None of the account's 7 activities (or its account record) mentions a security review."
+    },
+    {
+      "case_id": "profile-campbell-inc",
+      "account_id": "001a328a-864b-4d55-a9c6-4c05f9cdc7a6",
+      "question": "What industry is this account in and how many employees does it have?",
+      "expected_sources": [
+        {
+          "source_type": "ACCOUNT",
+          "source_id": "001a328a-864b-4d55-a9c6-4c05f9cdc7a6"
+        }
+      ],
+      "rationale": "Only the account record states industry (Real Estate) and employees (522)."
+    },
+    {
+      "case_id": "profile-cisneros-plc",
+      "account_id": "00425457-570f-4d72-b8ee-a5e1d50f1bcf",
+      "question": "What industry is this account in and how many employees does it have?",
+      "expected_sources": [
+        {
+          "source_type": "ACCOUNT",
+          "source_id": "00425457-570f-4d72-b8ee-a5e1d50f1bcf"
+        }
+      ],
+      "rationale": "Only the account record states industry (Financial Services) and employees (123)."
+    }
+  ]
+}

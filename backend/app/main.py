@@ -10,6 +10,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 from app.ai.embeddings import SentenceTransformerProvider
+from app.ai.llm import create_llm_provider
 from app.api.errors import register_exception_handlers
 from app.api.middleware import RequestContextMiddleware
 from app.api.router import api_router
@@ -45,6 +46,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             resolved_settings.embedding_dimension,
             batch_size=resolved_settings.embedding_batch_size,
         )
+        app.state.llm_provider = create_llm_provider(resolved_settings)
         app.state.champion_models = ChampionModelProvider(
             resolved_settings.mlflow_tracking_uri, resolved_settings.mlflow_model_name
         )

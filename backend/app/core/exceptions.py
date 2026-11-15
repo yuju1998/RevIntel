@@ -55,3 +55,16 @@ class SearchUnavailableError(DomainError):
     def __init__(self, reason: str) -> None:
         super().__init__(self.CLIENT_MESSAGE)
         self.reason = reason
+
+
+class AssistantUnavailableError(DomainError):
+    """The CRM Copilot cannot answer right now (LLM provider or embedding failure).
+
+    Clients only ever see a generic message; `reason` is for logs.
+    """
+
+    CLIENT_MESSAGE = "The assistant is currently unavailable."
+
+    def __init__(self, reason: str) -> None:
+        super().__init__(self.CLIENT_MESSAGE)
+        self.reason = reason

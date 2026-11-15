@@ -9,6 +9,7 @@ from sqlalchemy import Engine
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.ai.embeddings import EmbeddingProvider
+from app.ai.llm import LLMProvider
 from app.core.cache import Cache, NullCache, RedisCache
 from app.core.config import Settings
 from app.ml_inference.champion import ChampionModelProvider
@@ -26,6 +27,7 @@ from app.repositories.user import UserRepository
 from app.services.account_cache import AccountCache
 from app.services.account_service import AccountService
 from app.services.activity_service import ActivityService
+from app.services.assistant_query_service import AssistantQueryService
 from app.services.auth_service import AuthService
 from app.services.contact_service import ContactService
 from app.services.crm_references import CrmRepositories
@@ -129,6 +131,18 @@ def get_semantic_search_service(
     )
 
 
+def get_llm_provider(request: Request) -> LLMProvider:
+    """Process-wide LLM provider (created at startup; no network call until used)."""
+    return request.app.state.llm_provider
+
+
+def get_assistant_query_service(
+    search: Annotated[SemanticSearchService, Depends(get_semantic_search_service)],
+    llm: Annotated[LLMProvider, Depends(get_llm_provider)],
+) -> AssistantQueryService:
+    return AssistantQueryService(search, llm)
+
+
 def get_lead_scoring_service(
     session: SessionDep,
     models: Annotated[ChampionModelProvider, Depends(get_champion_models)],
@@ -179,6 +193,9 @@ LeadServiceDep = Annotated[LeadService, Depends(get_lead_service)]
 LeadScoringServiceDep = Annotated[LeadScoringService, Depends(get_lead_scoring_service)]
 SemanticSearchServiceDep = Annotated[
     SemanticSearchService, Depends(get_semantic_search_service)
+]
+AssistantQueryServiceDep = Annotated[
+    AssistantQueryService, Depends(get_assistant_query_service)
 ]
 OpportunityServiceDep = Annotated[OpportunityService, Depends(get_opportunity_service)]
 ActivityServiceDep = Annotated[ActivityService, Depends(get_activity_service)]

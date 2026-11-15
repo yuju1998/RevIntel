@@ -55,6 +55,13 @@ The API needs every required variable below. Alembic only needs `DATABASE_URL` a
 | `EMBEDDING_MODEL` | no | `sentence-transformers/all-MiniLM-L6-v2` | Downloaded once into the Hugging Face cache, loaded on the first search. |
 | `EMBEDDING_DIMENSION` | no | `384` | Must be `384` (`document_chunks.embedding`). |
 | `EMBEDDING_BATCH_SIZE` | no | `64` | Texts per model forward pass (1–1024). |
+| `LLM_PROVIDER` | no | `mock` | `mock` (offline, deterministic; local and tests) or `openai` (V1 production). |
+| `OPENAI_API_KEY` | with `openai` | — | Never logged or shown. Required when `LLM_PROVIDER=openai`. |
+| `OPENAI_MODEL` | with `openai` | — | Model used with the Responses API. Required when `LLM_PROVIDER=openai`. |
+| `OPENAI_TEMPERATURE` | no | `0` | 0–2; empty to omit it for models that do not accept it. |
+| `OPENAI_MAX_OUTPUT_TOKENS` | no | `800` | |
+| `OPENAI_TIMEOUT_SECONDS` | no | `30` | |
+| `OPENAI_MAX_RETRIES` | no | `2` | SDK retries for transient errors. |
 
 Invalid or missing required settings stop the application at startup. Validation errors
 do not echo the offending values, so connection strings do not end up in logs.
@@ -553,8 +560,8 @@ records (`account_id: null`) and other accounts' records never appear.
 #### `POST /api/v1/assistant/search` → `200`
 
 Semantic search over **one** account's indexed CRM text (activities, notes, opportunities
-and the account itself). Requires a bearer token. No answer generation: it returns the
-matching CRM records.
+and the account itself). Requires a bearer token. Returns the matching CRM records (for a
+generated answer, see `/assistant/query`).
 
 | Field | Type | Required |
 |---|---|---|
@@ -586,6 +593,42 @@ matching CRM records.
 - `422` for a missing or invalid field, or an unknown field.
 - `503` `{"detail": "Semantic search is currently unavailable."}` if the embedding model
   cannot be loaded; the reason is only logged (`semantic_search_unavailable`).
+
+#### `POST /api/v1/assistant/query` → `200`
+
+The CRM Copilot: a grounded answer about **one** account, built only from that account's
+retrieved CRM records (the same account-scoped retrieval as `/search`, top 5). Requires a
+bearer token. Single question, no conversation memory, no streaming.
+
+```json
+{"account_id": "0eb86761-...", "question": "Why might this account be at risk?"}
+```
+
+`question` is trimmed, 1–1000 characters; unknown fields are rejected.
+
+```json
+{
+  "answer": "Facts:\n- The CFO pushed back on pricing and asked for a discount [SOURCE:e76be814-...].\nRecommendations:\n- Prepare a pricing proposal, motivated by [SOURCE:e76be814-...].",
+  "insufficient_evidence": false,
+  "sources": [{"source_id": "e76be814-...", "source_type": "NOTE"}]
+}
+```
+
+- The answer separates **Facts** from **Recommendations**; each recommendation names the
+  records that motivate it. Citations appear inline as `[SOURCE:<source_id>]`.
+- `sources` contains only validated citations: records retrieved for this account. Any
+  citation the model invents (or of a record that was not retrieved) is dropped and its
+  inline marker removed; it is never returned.
+- `insufficient_evidence` is `true` when the records do not answer the question; the
+  answer then says so instead of guessing. With no indexed records for the account, the
+  LLM is not called.
+
+**Errors:**
+- `401` without a token.
+- `404` if the account does not exist.
+- `422` for a missing or invalid field, or an unknown field.
+- `503` `{"detail": "The assistant is currently unavailable."}` if the LLM provider or the
+  embedding model fails; the reason is only logged (`assistant_unavailable`).
 
 ## Tests
 

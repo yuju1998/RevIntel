@@ -96,8 +96,61 @@ on first use), token-aware chunking and CRM text builders. `CrmIndexingService`
 (`python -m app.cli.index_crm`) embeds CRM text into `document_chunks`;
 `SemanticSearchService` answers `POST /api/v1/assistant/search` through
 `SemanticSearchRepository`, whose single SQL statement is restricted to the requested
-account. No LLM or answer generation yet. See `docs/DATABASE.md`, "document_chunks" and
-"RAG isolation rule".
+account. See `docs/DATABASE.md`, "document_chunks" and "RAG isolation rule".
+
+### CRM Copilot
+
+`POST /api/v1/assistant/query` answers a question about one account from that account's
+CRM records only:
+
+question → `SemanticSearchService` (the same account-scoped retrieval, top 5) →
+`app/ai/copilot.py` prompt with exactly those records → `LLMProvider` → citation
+validation → answer + sources.
+
+- **Providers** (`app/ai/llm.py`): `LLMProvider` is the abstraction; `OpenAILLMProvider`
+  (`app/ai/openai_provider.py`, OpenAI Responses API) is the V1 production implementation;
+  `MockLLMProvider` (deterministic, offline) is used for local development and tests.
+  Selected by `LLM_PROVIDER`. Retrieval, prompting and citation validation are
+  provider-independent; all OpenAI SDK code lives in `OpenAILLMProvider`.
+- **OpenAI call:** structured output (`answer`, `cited_source_ids`,
+  `insufficient_evidence`), temperature 0 by default, `store=False`, no tools, no
+  conversation state. SDK failures, refusals and incomplete responses become a generic
+  `503` (details logged without the key or prompt).
+- **Prompt:** grounding rules (only the supplied records, no invented customer facts or
+  outside knowledge for customer claims, facts vs. recommendations with their motivating
+  records, say when evidence is insufficient), then each record with its explicit
+  `source_type` and `source_id`. Record text is escaped and treated as data.
+- **Citations:** the model cites inline as `[SOURCE:<source_id>]` and in
+  `cited_source_ids`. Both are checked against the retrieved records; anything else is
+  dropped (an invalid inline marker is removed from the text). Returned sources are the
+  validated citations, with `source_type` taken from the retrieved record. Text outside
+  citation markers is not modified.
+- **No evidence:** if retrieval returns nothing, the answer says so without calling the
+  LLM.
+
+### RAG evaluation
+
+`PYTHONPATH=.:backend python -m ml.evaluation.rag_eval --database-url <revintel_ml URL>
+[--provider mock|openai] [--output report.json]` runs `data/rag_eval/questions.json`
+(manually verified cases on the seed-42 synthetic dataset; expected sources only, no
+reference answers) through the real `AssistantQueryService`, read-only. The database must
+be the manifest's dataset and indexed (`python -m app.cli.index_crm`).
+
+Per case: E = expected sources, R = top-5 retrieved sources, C = returned citations.
+
+| Metric | Definition |
+|---|---|
+| Retrieval Recall@5 | \|E ∩ R\| / \|E\|, mean over cases with E non-empty |
+| Citation Precision | \|C ∩ E\| / \|C\|, mean over evidence-bearing cases (E non-empty) with C non-empty |
+| Citation Coverage | \|C ∩ E\| / \|E ∩ R\|, mean over cases where an expected source was retrieved |
+| Abstention Accuracy | share of no-evidence cases (E empty) answered with `insufficient_evidence = true`; these cases are not scored by Citation Precision |
+| Evidence-case Abstention Rate | share of evidence-bearing cases (E non-empty) answered with `insufficient_evidence = true`; lower is better; reported only |
+| Invalid Citation Rate | raw model citations (inline and structured) that were not retrieved, over all raw citations |
+| Cross-account leakage rate | items in R ∪ C ∪ answer citation markers owned by another (or an unknown) account, over all items; ownership is looked up independently. Must be 0: the run fails otherwise. |
+
+Only leakage gates the run. With `--provider mock`, citation metrics measure the
+pipeline (the mock cites its top 3 records), not answer quality; use `--provider openai`
+to measure the model. No LLM-as-judge.
 
 ## Transactions
 
@@ -179,9 +232,3 @@ account. No LLM or answer generation yet. See `docs/DATABASE.md`, "document_chun
   relationships, constraints, point-in-time invariants, broad realism bands) and of the
   feature pipeline (window/availability/label boundaries, leakage, offline/online parity).
 
-## Future layers (not implemented)
-
-- RAG over `document_chunks` with pgvector, account-scoped retrieval and Bedrock
-  generation.
-
-Their schema is designed in `docs/DATABASE.md`; none of their code exists yet.
