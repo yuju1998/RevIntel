@@ -35,13 +35,13 @@
 - [x] Candidate registration
 
 ## Phase 4 — AI
-- [ ] pgvector schema
-- [ ] CRM indexing
-- [ ] Semantic search
-- [ ] Bedrock provider
-- [ ] Copilot
-- [ ] Citation validation
-- [ ] RAG evaluation
+- [x] pgvector schema
+- [x] CRM indexing
+- [x] Semantic search
+- [x] LLM provider (OpenAI, mock)
+- [x] Copilot
+- [x] Citation validation
+- [x] RAG evaluation
 
 ## Phase 5 — Production
 - [ ] Docker image

@@ -1,9 +1,9 @@
 """Centralized application configuration loaded from environment variables and `.env`."""
 
 from functools import lru_cache
-from typing import Literal
+from typing import Literal, Self
 
-from pydantic import Field, PostgresDsn, RedisDsn, SecretStr, field_validator
+from pydantic import Field, PostgresDsn, RedisDsn, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # Name the driver explicitly instead of relying on SQLAlchemy's default for `postgresql://`.
@@ -12,6 +12,9 @@ REQUIRED_DATABASE_SCHEME = "postgresql+psycopg"
 # from `ml` so that settings (and Alembic, which loads them) stay free of the ML package.
 DEFAULT_MLFLOW_TRACKING_URI = "http://127.0.0.1:5001"
 DEFAULT_MLFLOW_MODEL_NAME = "revintel-lead-conversion"
+# Embedding defaults; EMBEDDING_DIMENSION must equal the VECTOR(384) column width.
+DEFAULT_EMBEDDING_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
+EMBEDDING_DIMENSION = 384
 
 
 class DatabaseSettings(BaseSettings):
@@ -42,7 +45,67 @@ class DatabaseSettings(BaseSettings):
         return value
 
 
-class Settings(DatabaseSettings):
+class EmbeddingSettings(BaseSettings):
+    """Embedding settings, shared by the API and the CRM indexing CLI."""
+
+    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
+
+    # Only local sentence-transformers embeddings exist in V1; the dimension is fixed by
+    # document_chunks.embedding (VECTOR(384)).
+    embedding_provider: Literal["local"] = "local"
+    embedding_model: str = Field(default=DEFAULT_EMBEDDING_MODEL, min_length=1)
+    embedding_dimension: int = EMBEDDING_DIMENSION
+    embedding_batch_size: int = Field(default=64, ge=1, le=1024)
+
+    @field_validator("embedding_dimension")
+    @classmethod
+    def _require_schema_dimension(cls, value: int) -> int:
+        if value != EMBEDDING_DIMENSION:
+            raise ValueError(
+                f"EMBEDDING_DIMENSION must be {EMBEDDING_DIMENSION} (document_chunks.embedding)"
+            )
+        return value
+
+
+class LLMSettings(BaseSettings):
+    """LLM provider settings, shared by the API and the RAG evaluation."""
+
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
+        # Keep the API key out of validation error messages.
+        hide_input_in_errors=True,
+    )
+
+    # CRM Copilot answer generation. `mock` is deterministic and offline (local/tests);
+    # `openai` is the V1 production provider and then requires a key and a model.
+    llm_provider: Literal["mock", "openai"] = "mock"
+    # Never logged or shown (SecretStr).
+    openai_api_key: SecretStr | None = None
+    openai_model: str | None = None
+    # 0 = low-variance answers. Empty to omit (for models that reject `temperature`).
+    openai_temperature: float | None = Field(default=0.0, ge=0, le=2)
+    openai_max_output_tokens: int = Field(default=800, ge=1, le=16384)
+    openai_timeout_seconds: float = Field(default=30.0, gt=0, le=300)
+    openai_max_retries: int = Field(default=2, ge=0, le=10)
+
+    @field_validator("openai_api_key", "openai_model", "openai_temperature", mode="before")
+    @classmethod
+    def _empty_is_unset(cls, value: object) -> object:
+        return None if isinstance(value, str) and not value.strip() else value
+
+    @model_validator(mode="after")
+    def _require_openai_settings(self) -> Self:
+        if self.llm_provider == "openai":
+            if self.openai_api_key is None or not self.openai_api_key.get_secret_value():
+                raise ValueError("OPENAI_API_KEY is required when LLM_PROVIDER=openai")
+            if not self.openai_model:
+                raise ValueError("OPENAI_MODEL is required when LLM_PROVIDER=openai")
+        return self
+
+
+class Settings(DatabaseSettings, EmbeddingSettings, LLMSettings):
     """Full configuration for the FastAPI application."""
 
     app_name: str = "RevIntel"
@@ -73,6 +136,16 @@ class Settings(DatabaseSettings):
 def get_database_settings() -> DatabaseSettings:
     # DATABASE_URL comes from the environment or `.env`; other services' settings are ignored.
     return DatabaseSettings()  # type: ignore[call-arg]
+
+
+@lru_cache
+def get_embedding_settings() -> EmbeddingSettings:
+    return EmbeddingSettings()
+
+
+@lru_cache
+def get_llm_settings() -> LLMSettings:
+    return LLMSettings()
 
 
 @lru_cache

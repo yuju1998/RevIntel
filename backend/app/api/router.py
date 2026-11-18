@@ -5,6 +5,7 @@ from fastapi import APIRouter
 from app.api.routes import (
     accounts,
     activities,
+    assistant,
     auth,
     contacts,
     health,
@@ -31,4 +32,5 @@ v1_router.include_router(leads.router)
 v1_router.include_router(opportunities.router)
 v1_router.include_router(activities.router)
 v1_router.include_router(notes.router)
+v1_router.include_router(assistant.router)
 api_router.include_router(v1_router)

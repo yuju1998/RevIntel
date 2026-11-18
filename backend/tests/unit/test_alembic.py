@@ -82,9 +82,10 @@ def test_migration_chain_is_linear(alembic_config: Config) -> None:
     script = ScriptDirectory.from_config(alembic_config)
     chain = [rev.revision for rev in reversed(list(script.walk_revisions()))]
 
-    assert chain == ["d9abf148e9ed", "9d4d176a3488", "8d37bd7e6458"]
+    assert chain == ["d9abf148e9ed", "9d4d176a3488", "8d37bd7e6458", "cbc0356c1ce0"]
     assert script.get_revision("9d4d176a3488").down_revision == "d9abf148e9ed"
     assert script.get_revision("8d37bd7e6458").down_revision == "9d4d176a3488"
+    assert script.get_revision("cbc0356c1ce0").down_revision == "8d37bd7e6458"
 
 
 def test_upgrade_sql_creates_only_implemented_tables(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -100,8 +101,10 @@ def test_upgrade_sql_creates_only_implemented_tables(monkeypatch: pytest.MonkeyP
         "activities",
         "notes",
         "lead_predictions",
+        "document_chunks",
     }
-    assert "vector" not in sql.lower()
+    assert "CREATE EXTENSION IF NOT EXISTS vector" in sql
+    assert "VECTOR(384)" in sql
 
 
 def test_second_migration_only_adds_activities_and_notes(
@@ -123,12 +126,30 @@ def test_third_migration_only_adds_lead_predictions(monkeypatch: pytest.MonkeyPa
     monkeypatch.setenv("DATABASE_URL", UNREACHABLE_DATABASE_URL)
     buffer = io.StringIO()
     config = Config(str(ALEMBIC_INI), output_buffer=buffer)
-    command.upgrade(config, "9d4d176a3488:head", sql=True)
+    command.upgrade(config, "9d4d176a3488:8d37bd7e6458", sql=True)
     sql = buffer.getvalue()
 
     assert set(re.findall(r"CREATE TABLE (\w+)", sql)) == {"lead_predictions"}
     assert not re.search(r"(ALTER|DROP) TABLE", sql)
     assert len(re.findall(r"CONSTRAINT ck_lead_predictions_lead_tier ", sql)) == 1
+    assert "ON DELETE CASCADE" in sql
+
+
+def test_fourth_migration_only_adds_document_chunks(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("DATABASE_URL", UNREACHABLE_DATABASE_URL)
+    buffer = io.StringIO()
+    config = Config(str(ALEMBIC_INI), output_buffer=buffer)
+    command.upgrade(config, "8d37bd7e6458:head", sql=True)
+    sql = buffer.getvalue()
+
+    assert set(re.findall(r"CREATE TABLE (\w+)", sql)) == {"document_chunks"}
+    assert not re.search(r"(ALTER|DROP) TABLE", sql)
+    assert "CREATE EXTENSION IF NOT EXISTS vector" in sql
+    for name in (
+        "ck_document_chunks_document_source_type",
+        "ck_document_chunks_document_entity_type",
+    ):
+        assert len(re.findall(rf"CONSTRAINT {name} ", sql)) == 1
     assert "ON DELETE CASCADE" in sql
 
 
@@ -146,6 +167,8 @@ def test_upgrade_sql_names_each_constraint_exactly_once(monkeypatch: pytest.Monk
         "activity_type",
         "activity_direction",
         "lead_tier",
+        "document_source_type",
+        "document_entity_type",
     } & set(names)
     for name in (
         "uq_users_email",
@@ -163,6 +186,7 @@ def test_downgrade_sql_drops_tables_in_reverse_dependency_order(
 
     dropped = [name for name in re.findall(r"DROP TABLE (\w+)", sql) if name != "alembic_version"]
     assert dropped == [
+        "document_chunks",
         "lead_predictions",
         "notes",
         "activities",

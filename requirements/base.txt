@@ -13,5 +13,9 @@ orjson
 httpx
 tenacity
 pgvector
+# Local embeddings (sentence-transformers/all-MiniLM-L6-v2) for CRM semantic search.
+sentence-transformers
+# CRM Copilot answer generation (OpenAI Responses API).
+openai
 boto3
 

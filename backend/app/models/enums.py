@@ -56,3 +56,20 @@ class LeadTier(StrEnum):
     HOT = "HOT"
     WARM = "WARM"
     COLD = "COLD"
+
+
+class DocumentSourceType(StrEnum):
+    """CRM table a document chunk's text was taken from."""
+
+    ACCOUNT = "ACCOUNT"
+    ACTIVITY = "ACTIVITY"
+    NOTE = "NOTE"
+    OPPORTUNITY = "OPPORTUNITY"
+
+
+class DocumentEntityType(StrEnum):
+    """CRM record a document chunk is about (its most specific account-level parent)."""
+
+    ACCOUNT = "ACCOUNT"
+    CONTACT = "CONTACT"
+    OPPORTUNITY = "OPPORTUNITY"

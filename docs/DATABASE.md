@@ -57,8 +57,8 @@ intentionally postponed work is in [Deferred / future considerations](#deferred-
   `contacts`, `leads`, `opportunities`, `notes`).
 - Append-only tables have only `created_at`: `activities`, `lead_predictions`,
   `document_chunks`.
-- Business-time columns (`occurred_at`, `converted_at`, `prediction_timestamp`,
-  `source_timestamp`) are set by the application and never defaulted to `now()`.
+- Business-time columns (`occurred_at`, `converted_at`, `prediction_timestamp`) are set
+  by the application and never defaulted to `now()`.
 - `DATE` is used only for calendar dates without a time (`expected_close_date`).
 
 ### Money and numbers
@@ -445,7 +445,8 @@ Indexes:
 
 ### document_chunks
 
-Text chunks and embeddings for account-scoped RAG retrieval.
+Embedded CRM text for account-scoped semantic search. Rebuilt by the indexer
+(`python -m app.cli.index_crm`); never edited through the API.
 
 | Column | Type | Null | Default | Notes |
 |---|---|---|---|---|
@@ -453,26 +454,44 @@ Text chunks and embeddings for account-scoped RAG retrieval.
 | `account_id` | `UUID` → `accounts.id` | no | — | `ON DELETE CASCADE`. Isolation key; see [RAG isolation rule](#rag-isolation-rule). |
 | `source_type` | `VARCHAR(32)` enum `document_source_type` | no | — | `ACCOUNT`, `ACTIVITY`, `NOTE`, `OPPORTUNITY` |
 | `source_id` | `UUID` | no | — | ID of the source row in the table named by `source_type`. **No FK** (polymorphic). |
+| `entity_type` | `VARCHAR(32)` enum `document_entity_type` | no | — | CRM record the text is about: `ACCOUNT`, `CONTACT`, `OPPORTUNITY`. |
+| `entity_id` | `UUID` | no | — | ID of that record (no FK). |
 | `chunk_index` | `INTEGER` | no | — | 0-based position within the source document. `>= 0` |
-| `content` | `TEXT` | no | — | Chunk text returned to the LLM and cited. |
-| `embedding` | `VECTOR(384)` | yes | — | `NULL` until embedded; excluded from retrieval. |
-| `embedding_model` | `VARCHAR(255)` | no | — | Embedding model that produced (or will produce) `embedding`, e.g. `sentence-transformers/all-MiniLM-L6-v2`. Used to find stale vectors when re-indexing. |
-| `metadata` | `JSONB` | no | `'{}'::jsonb` | Extra retrieval metadata. |
-| `source_timestamp` | `TIMESTAMPTZ` | no | — | Business timestamp of the source, returned with every retrieved record. |
+| `content` | `TEXT` | no | — | Chunk text returned by search (and later cited by answers). |
+| `embedding` | `VECTOR(384)` | no | — | Unit-length embedding of `content`; chunks are embedded when indexed. |
+| `embedding_model` | `VARCHAR(255)` | no | — | Model that produced `embedding`, e.g. `sentence-transformers/all-MiniLM-L6-v2`. Search only uses chunks of the configured model. |
+| `source_sha256` | `VARCHAR(64)` | no | — | Hash of the indexed input (account, entity, timestamp, metadata, chunk texts, model); unchanged sources are not re-embedded. |
+| `metadata` | `JSONB` | no | `'{}'::jsonb` | e.g. `activity_type`, `direction`, `stage`, `chunk_count`. |
+| `occurred_at` | `TIMESTAMPTZ` | no | — | Business timestamp of the source, returned with every search result. |
 | `created_at` | `TIMESTAMPTZ` | no | `now()` | When the chunk was indexed. |
 
-`source_timestamp` is populated from the source:
+`occurred_at` comes from the source:
 
-| `source_type` | `source_timestamp` |
+| `source_type` | `occurred_at` | `entity_type` / `entity_id` |
+|---|---|---|
+| `ACTIVITY` | `activities.occurred_at` | its opportunity, else its contact, else its account |
+| `NOTE` | `notes.created_at` | its opportunity, else its account |
+| `OPPORTUNITY` | `opportunities.updated_at` | the opportunity |
+| `ACCOUNT` | `accounts.updated_at` | the account |
+
+Indexed text per source (V1):
+
+| `source_type` | Text |
 |---|---|
-| `ACTIVITY` | `activities.occurred_at` |
-| `NOTE` | `notes.created_at` |
-| `OPPORTUNITY` | `opportunities.updated_at` |
-| `ACCOUNT` | `accounts.updated_at` |
+| `ACTIVITY` | `"{Type} ({direction}): {subject}"` and the body on the next line |
+| `NOTE` | the body |
+| `OPPORTUNITY` | name, stage, amount, expected close date and description, one per line |
+| `ACCOUNT` | name, industry, employee count and website, one per line |
+
+**Chunking (V1):** a source is one chunk unless its text exceeds the embedding model's
+input limit (`max_seq_length` minus the two special tokens: 254 tokens for MiniLM),
+measured with the model's own tokenizer. Longer text is cut at whitespace into windows of
+at most that many tokens, overlapping by about 32 tokens, so the model never silently
+truncates a chunk. Current CRM text (tens of characters) is always a single chunk.
 
 Constraints: `pk_document_chunks`, `fk_document_chunks_account_id_accounts`,
-`ck_document_chunks_document_source_type`, `ck_document_chunks_chunk_index_non_negative`,
-and
+`ck_document_chunks_document_source_type`, `ck_document_chunks_document_entity_type`,
+`ck_document_chunks_chunk_index_non_negative`, and
 
 ```sql
 CONSTRAINT uq_document_chunks_source_type_source_id_chunk_index
@@ -485,25 +504,37 @@ all chunks for a source" during re-indexing, so `source_id` has no separate inde
 Embedding dimension:
 
 - `VECTOR(384)` is fixed for V1 and matches `EMBEDDING_DIMENSION=384`
-  (`sentence-transformers/all-MiniLM-L6-v2`).
+  (`sentence-transformers/all-MiniLM-L6-v2`); the settings reject any other value and the
+  provider checks every vector.
 - Switching to a model with a different dimension requires a schema migration and
   re-embedding all existing chunks.
 
 Implementation notes:
 
-- `metadata` is reserved for the `MetaData` instance on Declarative classes (SQLAlchemy 2.1
-  emits an `SAWarning` and the attribute would shadow `Base.metadata`). Keep the column name
-  `metadata` but map it to a different attribute, e.g.
-  `chunk_metadata: Mapped[dict[str, Any]] = mapped_column("metadata", JSONB, ...)`.
-- Because `source_id` has no FK, the indexer must delete or rebuild a source's chunks when
-  the source row is updated, re-parented to another account, or deleted.
-- The pgvector extension must be created by the Phase 4 migration
-  (`CREATE EXTENSION IF NOT EXISTS vector`); locally it is created by
-  `docker/postgres/init/001-init.sql`, but RDS needs the migration. The migration must
-  import `pgvector.sqlalchemy`.
+- `metadata` is reserved for the `MetaData` instance on Declarative classes, so the column
+  `metadata` is mapped to the attribute `chunk_metadata`.
+- The migration runs `CREATE EXTENSION IF NOT EXISTS vector` (RDS needs it; locally
+  `docker/postgres/init/001-init.sql` already creates it) and imports `pgvector.sqlalchemy`.
 
-Indexes: `ix_document_chunks_account_id`. **No vector similarity index yet**; it is
-designed with the RAG feature.
+Indexes: `ix_document_chunks_account_id`. **No vector similarity (ANN) index in V1**:
+search is an exact cosine scan restricted to one account, which is correct and fast at the
+current chunk counts per account. An HNSW index with a filter can return fewer than
+`limit` rows; add it with pgvector ≥ 0.8 iterative scans if per-account volumes grow.
+
+### Indexing
+
+`PYTHONPATH=backend python -m app.cli.index_crm [--account-id UUID]` (uses `DATABASE_URL`
+and the `EMBEDDING_*` settings). It is rerunnable and idempotent:
+
+- Sources are read in pages of 500; each page is one transaction and one batched
+  embedding call (identical texts are embedded once).
+- Unchanged sources (same `source_sha256`) are skipped without embedding.
+- A new or changed source has all its chunks replaced, whatever account they were under.
+- Chunks of deleted sources, or of sources that no longer resolve to an account, are
+  removed. With `--account-id`, only that account's chunks are considered.
+- The unique `(source_type, source_id, chunk_index)` constraint rules out duplicates.
+
+Indexing is not triggered by CRM writes in V1: search reflects the last indexing run.
 
 ---
 
@@ -576,6 +607,7 @@ removed explicitly. This is intended while V1 has no soft deletes and no delete 
 | `ck_lead_predictions_conversion_probability_range` | lead_predictions | `conversion_probability >= 0 AND conversion_probability <= 1` | 3 |
 | `ck_lead_predictions_inference_ms_non_negative` | lead_predictions | `inference_ms >= 0` | 3 |
 | `ck_document_chunks_document_source_type` | document_chunks | enum values | 4 |
+| `ck_document_chunks_document_entity_type` | document_chunks | enum values | 4 |
 | `ck_document_chunks_chunk_index_non_negative` | document_chunks | `chunk_index >= 0` | 4 |
 
 Non-negative checks on nullable columns pass for `NULL` (SQL CHECK semantics), which is
@@ -655,9 +687,10 @@ when the corresponding phase is built.
    columns stay nullable (`ON DELETE SET NULL`) so records survive user deletion.
 5. **`activities.occurred_at`** (Phase 2) is when the activity actually happened: it must
    be timezone-aware and not more than 5 minutes in the future (clock-skew allowance).
-6. **Document chunk maintenance** (Phase 4): rebuild or delete a source's chunks when the
-   source changes, moves account, or is deleted; populate `source_timestamp` and
-   `embedding_model`.
+6. **Document chunk maintenance** (Phase 4): the indexer rebuilds or deletes a source's
+   chunks when the source changes, moves account, or is deleted, and populates
+   `occurred_at`, `embedding_model` and `source_sha256`
+   (`backend/app/services/crm_indexing_service.py`).
 
 ---
 
@@ -669,23 +702,27 @@ RevIntel V1 RAG is **account-scoped**. Retrieval must never return another custo
 may already reference an account. Retrieval filters on it **before** vector similarity
 ranking, so chunks from other accounts are never candidates.
 
-Conceptual query (not implemented yet):
+The query (`backend/app/repositories/semantic_search.py`), one statement:
 
 ```sql
-SELECT id, source_type, source_id, account_id, source_timestamp, content
+SELECT account_id, source_type, source_id, content, occurred_at,
+       1 - (embedding <=> :query_embedding) AS similarity   -- cosine similarity
 FROM document_chunks
 WHERE account_id = :account_id
-  AND embedding IS NOT NULL
-ORDER BY embedding <=> :query_embedding
+  AND embedding_model = :embedding_model
+ORDER BY embedding <=> :query_embedding, id
 LIMIT :k;
 ```
+
+The account predicate is in the same statement that ranks and limits; results are never
+retrieved across accounts and filtered afterwards.
 
 Rules:
 
 - `account_id` is a required argument of the retrieval repository; there is no unscoped
   search.
 - Each retrieved record keeps `source_type`, `source_id`, `account_id`, a timestamp
-  (`source_timestamp`, never null) and the text (`content`). Answers cite `source_type` +
+  (`occurred_at`, never null) and the text (`content`). Answers cite `source_type` +
   `source_id`.
 - `account_id` is derived from the source when indexing:
 
@@ -693,18 +730,19 @@ Rules:
   |---|---|
   | `ACCOUNT` | the account itself (`source_id = account_id`) |
   | `OPPORTUNITY` | `opportunities.account_id` |
-  | `ACTIVITY` | `activities.account_id` |
-  | `NOTE` | `notes.account_id` |
+  | `ACTIVITY` | `activities.account_id`, else its opportunity's or contact's account |
+  | `NOTE` | `notes.account_id`, else its opportunity's account |
 
-  Activity/note `account_id` is already canonical: the service stores the account derived
-  from the opportunity/contact and guarantees all references agree on one account
-  (service rule 3).
-- Activities and notes that resolve to no account (lead-only) are **not indexed** into the
-  account RAG corpus in V1. `document_chunks.account_id` stays `NOT NULL`.
+  All of a source's account references must agree on one account; a source whose
+  references conflict is skipped. The API already stores the canonical account (service
+  rule 3); resolving through the opportunity/contact also covers rows written without it.
+- Every indexed document has a resolved `account_id`. Activities and notes that resolve to
+  no account are **not indexed** in V1; leads have no account in the schema, so lead-only
+  activities and notes are always skipped. `document_chunks.account_id` stays `NOT NULL`.
 - Only chunks whose `embedding_model` matches the configured `EMBEDDING_MODEL` should be
   queried; mismatches are stale and must be re-embedded.
-- When a vector index is added later, filtered approximate search needs care (pgvector
-  ≥ 0.8 iterative index scans, or exact scans per account); design it with the RAG feature.
+- V1 has no vector index (exact per-account scan). If one is added, filtered approximate
+  search needs care (pgvector ≥ 0.8 iterative index scans).
 
 ---
 
@@ -932,7 +970,7 @@ listed for its tables.
 | 1 ✅ `d9abf148e9ed` | `users`, `accounts`, `contacts`, `leads`, `opportunities` | Enum checks, non-negative checks, `ck_leads_converted_requires_converted_at` | Phase 1 — Backend |
 | 2 ✅ `9d4d176a3488` | `activities`, `notes` | `*_at_least_one_parent` checks, FK indexes incl. `created_by_id` / `author_id` | Phase 1 — Backend |
 | 3 ✅ `8d37bd7e6458` | `lead_predictions` | Idempotency unique constraint (also the `lead_id` index), probability range check, nullable `inference_ms` | Phase 2 — Data + ML |
-| 4 | `document_chunks` | `CREATE EXTENSION IF NOT EXISTS vector`, explicit composite unique constraint, `chunk_index` check | Phase 4 — AI |
+| 4 ✅ `cbc0356c1ce0` | `document_chunks` | `CREATE EXTENSION IF NOT EXISTS vector`, explicit composite unique constraint, `chunk_index` check, `entity_type`/`entity_id`, `source_sha256` | Phase 4 — AI |
 
 ---
 
@@ -951,7 +989,7 @@ already reflects these decisions.
 | Q6 | Conversion check | `CHECK (status <> 'CONVERTED' OR converted_at IS NOT NULL)`, one-directional by design. |
 | Q7 | User FK indexes | Index `activities.created_by_id` and `notes.author_id`; every FK is indexed. |
 | Q8 | Prediction indexing | Unique `uq_lead_predictions_lead_id_timestamp_model` on `(lead_id, prediction_timestamp, model_name, model_version)` for idempotent retries (shortened name: the full descriptive name exceeds 63 characters). Its index, led by `(lead_id, prediction_timestamp)`, serves "latest prediction for this lead" and the FK, so there is no separate `lead_id` or composite index. |
-| Q9 | Document chunks | `occurred_at` → `source_timestamp NOT NULL`; add `embedding_model VARCHAR(255) NOT NULL`; keep `VECTOR(384)`; account-scoped RAG only, lead-only content not indexed. |
+| Q9 | Document chunks | `occurred_at` → `source_timestamp NOT NULL`; add `embedding_model VARCHAR(255) NOT NULL`; keep `VECTOR(384)`; account-scoped RAG only, lead-only content not indexed. Implemented with the business timestamp named `occurred_at` and `embedding` NOT NULL (see [document_chunks](#document_chunks)). |
 | Q10 | Lead conversion links | Deferred. V1 uses `status` + `converted_at` only. |
 | Q11 | Naming / audit | `activities.created_by` → `created_by_id`; add `users.updated_at`. |
 | Q12 | Non-negative checks | `>= 0` on `employee_count`, `annual_revenue`, `company_size`, `estimated_value`, `amount`, and later `chunk_index`. |
@@ -1074,7 +1112,7 @@ Manual:
 
 ```bash
 alembic upgrade head
-alembic current -v   # 8d37bd7e6458 (head); URL printed with the password masked
+alembic current -v   # cbc0356c1ce0 (head); URL printed with the password masked
 alembic check        # "No new upgrade operations detected."
 ```
 

@@ -26,8 +26,9 @@ SAFE_DATABASE_SUFFIXES = ("_test", "_ml")
 PROTECTED_USER_EMAIL = "admin@example.com"
 PROTECTED_ACCOUNT_NAME = "RevIntel Co"
 CRM_TABLES = ("activities", "notes", "opportunities", "contacts", "leads", "accounts", "users")
-# Derived from CRM rows (scores reference leads), so a reset removes them as well.
-DERIVED_TABLES = ("lead_predictions",)
+# Derived from CRM rows (scores reference leads, chunks reference accounts), so a reset
+# removes them as well.
+DERIVED_TABLES = ("lead_predictions", "document_chunks")
 ALEMBIC_INI = Path(__file__).resolve().parents[2] / "alembic.ini"
 
 

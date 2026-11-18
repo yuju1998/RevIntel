@@ -3,7 +3,13 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from app.core.config import DatabaseSettings, Settings, get_database_settings, get_settings
+from app.core.config import (
+    DatabaseSettings,
+    EmbeddingSettings,
+    Settings,
+    get_database_settings,
+    get_settings,
+)
 
 pytestmark = pytest.mark.usefixtures("clean_env")
 
@@ -29,7 +35,8 @@ def test_loads_settings_from_env_file(tmp_path: Path) -> None:
         "DB_POOL_SIZE=7\n"
         "MLFLOW_TRACKING_URI=http://mlflow.internal:5001\n"
         # Keys for features that are not built yet must not break loading.
-        "EMBEDDING_PROVIDER=local\n"
+        "EMBEDDING_DIMENSION=384\n"
+        "AWS_REGION=us-east-1\n"
     )
 
     settings = Settings(_env_file=env_file)
@@ -41,7 +48,9 @@ def test_loads_settings_from_env_file(tmp_path: Path) -> None:
     assert settings.db_pool_size == 7
     assert settings.mlflow_tracking_uri == "http://mlflow.internal:5001"
     assert settings.mlflow_model_name == "revintel-lead-conversion"
-    assert not hasattr(settings, "embedding_provider")
+    assert settings.embedding_model == "sentence-transformers/all-MiniLM-L6-v2"
+    assert settings.embedding_dimension == 384
+    assert not hasattr(settings, "aws_region")
 
 
 def test_environment_variables_override_env_file(
@@ -271,3 +280,44 @@ def test_mlflow_defaults_match_the_ml_tooling() -> None:
 
     assert config.DEFAULT_MLFLOW_TRACKING_URI == mlflow_config.DEFAULT_TRACKING_URI
     assert config.DEFAULT_MLFLOW_MODEL_NAME == mlflow_config.DEFAULT_REGISTERED_MODEL
+
+
+def test_embedding_dimension_must_match_the_schema(tmp_path: Path) -> None:
+    env_file = tmp_path / ".env"
+    env_file.write_text("EMBEDDING_DIMENSION=768\n")
+
+    with pytest.raises(ValidationError, match="EMBEDDING_DIMENSION must be 384"):
+        EmbeddingSettings(_env_file=env_file)
+
+
+@pytest.mark.parametrize(
+    ("env", "message"),
+    [
+        ("LLM_PROVIDER=openai\nOPENAI_MODEL=m\n", "OPENAI_API_KEY is required"),
+        ("LLM_PROVIDER=openai\nOPENAI_API_KEY=sk-secret-value\n", "OPENAI_MODEL is required"),
+    ],
+)
+def test_openai_provider_requires_key_and_model(tmp_path: Path, env: str, message: str) -> None:
+    env_file = tmp_path / ".env"
+    env_file.write_text(f"DATABASE_URL={VALID_DATABASE_URL}\nREDIS_URL={VALID_REDIS_URL}\n" + env)
+
+    with pytest.raises(ValidationError, match=message) as error:
+        Settings(_env_file=env_file, jwt_secret="x" * 40)
+    assert "sk-secret-value" not in str(error.value)
+
+
+def test_openai_settings_load_and_keep_the_key_secret(tmp_path: Path) -> None:
+    env_file = tmp_path / ".env"
+    env_file.write_text(
+        f"DATABASE_URL={VALID_DATABASE_URL}\nREDIS_URL={VALID_REDIS_URL}\n"
+        "LLM_PROVIDER=openai\nOPENAI_API_KEY=sk-secret-value\nOPENAI_MODEL=test-model\n"
+        "OPENAI_TEMPERATURE=\n"
+    )
+
+    settings = Settings(_env_file=env_file, jwt_secret="x" * 40)
+
+    assert settings.llm_provider == "openai" and settings.openai_model == "test-model"
+    assert settings.openai_temperature is None  # empty: omitted for models without it
+    assert "sk-secret-value" not in repr(settings)
+    assert Settings(_env_file=None, database_url=VALID_DATABASE_URL, redis_url=VALID_REDIS_URL,
+                    jwt_secret="x" * 40).llm_provider == "mock"
