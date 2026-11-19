@@ -3,10 +3,11 @@ services:
     image: pgvector/pgvector:0.8.6-pg16
     container_name: revintel-postgres
 
+    # Credentials apply when the volume is first initialised; defaults match the local setup.
     environment:
-      POSTGRES_USER: revintel
-      POSTGRES_PASSWORD: revintel
-      POSTGRES_DB: revintel
+      POSTGRES_USER: ${POSTGRES_USER:-revintel}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-revintel}
+      POSTGRES_DB: ${POSTGRES_DB:-revintel}
 
     ports:
       - "5432:5432"
@@ -16,7 +17,7 @@ services:
       - ./docker/postgres/init:/docker-entrypoint-initdb.d
 
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U revintel"]
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER}"]
       interval: 5s
       timeout: 5s
       retries: 10
@@ -33,6 +34,50 @@ services:
       interval: 5s
       timeout: 5s
       retries: 10
+
+  api:
+    build:
+      context: .
+      args:
+        # Baked into the image; the runtime value below is the same variable, so they
+        # always match. Changing it requires `docker compose up --build`.
+        EMBEDDING_MODEL: ${EMBEDDING_MODEL:-sentence-transformers/all-MiniLM-L6-v2}
+    image: revintel-api:local
+    container_name: revintel-api
+
+    # Optional: application settings and secrets (JWT_SECRET, LLM_PROVIDER, OPENAI_*, ...)
+    # are read from .env at runtime when it exists; nothing is baked into the image.
+    env_file:
+      - path: .env
+        required: false
+
+    # Container networking always wins over .env (which points at localhost for host runs).
+    environment:
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-revintel}:${POSTGRES_PASSWORD:-revintel}@postgres:5432/${POSTGRES_DB:-revintel}
+      REDIS_URL: redis://redis:6379/0
+      # MLflow runs on the host (scripts/start_mlflow.sh with MLFLOW_HOST=0.0.0.0).
+      MLFLOW_TRACKING_URI: ${API_MLFLOW_TRACKING_URI:-http://host.docker.internal:5001}
+      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-sentence-transformers/all-MiniLM-L6-v2}
+
+    # host.docker.internal also on Linux (Docker Desktop provides it already).
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+    ports:
+      - "${API_PORT:-8000}:8000"
+
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
 
 volumes:
   postgres_data:

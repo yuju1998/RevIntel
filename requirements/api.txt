@@ -1,0 +1,19 @@
+# Runtime dependencies of the API container (Dockerfile). Install with the lock as
+# constraints so every version matches requirements/lock.txt:
+#   pip install -r requirements/api.txt -c requirements/lock.txt
+# torch (PyTorch CPU index) and xgboost (the official `xgboost-cpu` build, same `xgboost`
+# module) are installed first by the Dockerfile at their locked versions, without CUDA/NCCL.
+-r base.txt
+
+# Online lead scoring: load and run the MLflow champion (sklearn Pipeline + XGBoost).
+numpy
+pandas
+pyarrow
+scikit-learn
+joblib
+# MLflow client and model loading only; the tracking server is not part of the API.
+mlflow-skinny
+# Reads the champion's skops-serialized model (full mlflow would pull it in; skinny doesn't).
+skops
+# Imported through ml.features.sources -> ml.synthetic.writer (database-name guard).
+faker
