@@ -1,0 +1,28 @@
+# Only the API's code, migrations and dependency lists belong in the build context.
+# Secrets, local data, model artifacts, tooling and tests never do.
+.env
+.env.*
+.git
+.github
+.DS_Store
+**/__pycache__
+**/*.pyc
+.pytest_cache
+.ruff_cache
+.mypy_cache
+.venv
+venv
+
+artifacts
+data
+mlruns
+mlartifacts
+mlflow.db
+airflow
+docs
+scripts
+infrastructure
+docker
+backend/tests
+ml/tests
+*.md

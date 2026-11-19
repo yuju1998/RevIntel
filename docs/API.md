@@ -13,7 +13,7 @@ the OpenAPI schema is at `/openapi.json`.
 
 ```bash
 source ~/.virtualenvs/revintel/bin/activate
-docker compose up -d                       # PostgreSQL + Redis
+docker compose up -d postgres redis        # (`docker compose up` also starts the API container)
 cp .env.example .env                       # first time only
 alembic upgrade head                       # creates lead_predictions on a fresh database
 PYTHONPATH=. fastapi dev backend/app/main.py
@@ -23,6 +23,8 @@ PYTHONPATH=. fastapi dev backend/app/main.py
 (feature computation and the model contract) for lead scoring, and needs the ML
 dependencies from `requirements/ml.txt`. Scoring also needs the MLflow server
 (`scripts/start_mlflow.sh`, see `docs/MLFLOW.md`).
+
+To run the API itself in Docker instead (`docker compose up --build`), see `docs/DOCKER.md`.
 
 ## Configuration
 

@@ -44,7 +44,7 @@
 - [x] RAG evaluation
 
 ## Phase 5 — Production
-- [ ] Docker image
+- [x] Docker image
 - [ ] CI
 - [ ] ECR
 - [ ] RDS
