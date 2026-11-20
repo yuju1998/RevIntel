@@ -113,5 +113,6 @@ checked once on test.
     conventions
   - a snapshot needs its full 30-day label window within the observation horizon, with no
     exception for a later conversion or disqualification
-- **Not yet in place:** models are not served online. Tracked training registers the
+- **Serving:** the promoted `champion` version is served online by
+  `POST /api/v1/leads/{lead_id}/scores` (`docs/API.md`). Tracked training registers
   candidates in MLflow (`docs/MLFLOW.md`).

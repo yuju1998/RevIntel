@@ -272,7 +272,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 2
 
     from app.ai.embeddings import SentenceTransformerProvider
-    from app.core.config import DatabaseSettings
+    from app.core.config import EMBEDDING_DIMENSION, DatabaseSettings
     from app.db.session import create_db_engine
     from app.repositories.account import AccountRepository
     from app.repositories.semantic_search import SemanticSearchRepository
@@ -291,7 +291,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     engine = create_db_engine(
         DatabaseSettings(_env_file=None, database_url=args.database_url)
     ).execution_options(postgresql_readonly=True)
-    embeddings = SentenceTransformerProvider(document["embedding_model"], 384)
+    embeddings = SentenceTransformerProvider(document["embedding_model"], EMBEDDING_DIMENSION)
     try:
         with Session(engine) as session:
             try:

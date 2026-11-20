@@ -21,7 +21,8 @@ PYTHONPATH=. fastapi dev backend/app/main.py
 
 `PYTHONPATH=.` puts the repo root on the path: the API imports the shared `ml` package
 (feature computation and the model contract) for lead scoring, and needs the ML
-dependencies from `requirements/ml.txt`. Scoring also needs the MLflow server
+dependencies (`requirements/dev.txt` locally; the container installs only
+`requirements/api.txt`). Scoring also needs the MLflow server
 (`scripts/start_mlflow.sh`, see `docs/MLFLOW.md`).
 
 To run the API itself in Docker instead (`docker compose up --build`), see `docs/DOCKER.md`.

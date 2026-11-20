@@ -15,5 +15,3 @@ joblib
 mlflow-skinny
 # Reads the champion's skops-serialized model (full mlflow would pull it in; skinny doesn't).
 skops
-# Imported through ml.features.sources -> ml.synthetic.writer (database-name guard).
-faker

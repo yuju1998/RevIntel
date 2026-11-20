@@ -25,7 +25,7 @@ Data orchestration:
 
 AI:
 - pgvector retrieval
-- local embeddings during development
+- local sentence-transformers embeddings (all-MiniLM-L6-v2), baked into the API image
 - LLMProvider is the LLM provider abstraction
 - OpenAILLMProvider (OpenAI Responses API) is the V1 production implementation
 - MockLLMProvider is used for local development and tests

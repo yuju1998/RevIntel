@@ -16,8 +16,8 @@ import app.models  # noqa: F401  # registers every table on Base.metadata
 from app.core.config import DatabaseSettings
 from app.db.base import Base
 from app.db.session import create_db_engine
+from ml.database_guard import SAFE_DATABASE_SUFFIXES
 from ml.features.feature_spec import ACTIVITY_INPUT_COLUMNS
-from ml.synthetic.writer import SAFE_DATABASE_SUFFIXES
 
 LEADS: Table = Base.metadata.tables["leads"]
 ACTIVITIES: Table = Base.metadata.tables["activities"]
