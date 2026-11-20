@@ -42,7 +42,6 @@ from ml.training.mlflow_config import (
 PIPELINE = "lead_conversion_training"
 SUCCESS_FILE = "_SUCCESS.json"
 FEATURES_FILE = "lead_features.parquet"
-CANDIDATES = ("logistic_regression", "xgboost")
 ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_PIPELINE_ROOT = ROOT / "artifacts" / "pipeline_runs"
 

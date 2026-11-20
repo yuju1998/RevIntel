@@ -20,9 +20,9 @@ import app.models  # noqa: F401  # registers every table on Base.metadata
 from app.core.config import DatabaseSettings
 from app.db.base import Base
 from app.db.session import create_db_engine
+from ml.database_guard import SAFE_DATABASE_SUFFIXES
 from ml.synthetic.generator import SyntheticDataset
 
-SAFE_DATABASE_SUFFIXES = ("_test", "_ml")
 PROTECTED_USER_EMAIL = "admin@example.com"
 PROTECTED_ACCOUNT_NAME = "RevIntel Co"
 CRM_TABLES = ("activities", "notes", "opportunities", "contacts", "leads", "accounts", "users")

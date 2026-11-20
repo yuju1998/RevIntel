@@ -6,5 +6,4 @@ xgboost
 mlflow
 joblib
 faker
-matplotlib
 

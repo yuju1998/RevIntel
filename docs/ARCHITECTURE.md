@@ -6,7 +6,9 @@ This describes the backend as it exists today. Related documents: `docs/DATABASE
 ## Overview
 
 A single FastAPI application (Python 3.14, synchronous SQLAlchemy 2.x + psycopg 3)
-backed by PostgreSQL (pgvector image) and Redis, run locally with `docker compose`.
+backed by PostgreSQL (pgvector image) and Redis, run locally with `docker compose`. The
+API image (root `Dockerfile`, runtime dependencies in `requirements/api.txt`) is described
+in `docs/DOCKER.md`.
 
 ```
 HTTP request

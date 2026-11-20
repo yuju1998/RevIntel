@@ -9,9 +9,7 @@ pyjwt[crypto]
 pwdlib[argon2]
 python-multipart
 structlog
-orjson
 httpx
-tenacity
 pgvector
 # Local embeddings (sentence-transformers/all-MiniLM-L6-v2) for CRM semantic search.
 sentence-transformers

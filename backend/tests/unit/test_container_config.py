@@ -1,6 +1,9 @@
 """API container configuration (static checks; no Docker needed)."""
 
+import os
 import re
+import subprocess
+import sys
 from pathlib import Path
 
 import yaml
@@ -79,3 +82,25 @@ def test_compose_api_service_uses_service_hostnames_and_optional_env_file() -> N
         "postgres": "service_healthy",
         "redis": "service_healthy",
     }
+
+
+def test_the_api_serving_path_does_not_import_synthetic_data_code() -> None:
+    # Fresh interpreter: other tests in this session may already have imported it.
+    code = (
+        "import importlib, sys\n"
+        "import app.main\n"
+        "for name in ('app.ml_inference.champion', 'app.services.lead_scoring_service',\n"
+        "             'app.repositories.lead_features', 'ml.training.pipelines'):\n"
+        "    importlib.import_module(name)\n"
+        "loaded = sorted(m for m in sys.modules if m.startswith('ml.synthetic') or m == 'faker')\n"
+        "print(','.join(loaded))\n"
+    )
+    env = {**os.environ, "PYTHONPATH": f"{ROOT}{os.pathsep}{ROOT / 'backend'}"}
+
+    result = subprocess.run(
+        [sys.executable, "-c", code], cwd=ROOT, env=env, capture_output=True, text=True
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == ""
+    assert "faker" not in _requirements(REQUIREMENTS / "api.txt")
